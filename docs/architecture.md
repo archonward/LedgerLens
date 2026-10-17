@@ -1,13 +1,14 @@
 # Planned architecture
 
-All components described here are **planned and unimplemented**. The current repository contains
-only an executable scaffold.
+PDF text ingestion is implemented as a CPU-only baseline. All later components described here are
+**planned and unimplemented**.
 
 ## Pipeline
 
-1. **Ingestion (planned):** extract text and tables without losing the source document identity,
-   page reference, reporting period, currency, or units. Normalization must retain links to the
-   original representation.
+1. **Ingestion (partially implemented):** the current command extracts page-linked PDF text and
+   records document identity plus a user-supplied report year. OCR, structured table extraction,
+   printed page-label detection, and interpretation of periods, currency, and units remain
+   planned. Future normalization must retain links to the original representation.
 2. **Retrieval (planned):** index the extracted material, retrieve candidates relevant to a
    question, and rank evidence while retaining its complete provenance.
 3. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
