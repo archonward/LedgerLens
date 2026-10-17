@@ -1,0 +1,53 @@
+# Python caches and build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.tools/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Data (retain explanatory files)
+data/raw/*
+!data/raw/README.md
+data/processed/*
+!data/processed/README.md
+
+# Generated outputs, models, and experiment state
+artifacts/*
+!artifacts/README.md
+checkpoints/
+models/
+wandb/
+mlruns/
+logs/
+*.ckpt
+*.safetensors
+*.pt
+*.pth
+*.onnx
