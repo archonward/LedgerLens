@@ -43,10 +43,12 @@ Document-level metadata contains:
 - original filename, supplied company, report year, and optional source URL;
 - physical PDF page count and UTC extraction timestamp;
 - extractor name and installed version;
-- extraction settings and aggregated page warnings.
+- extraction settings and aggregated page warnings;
+- a `quality_summary` containing pages requiring review, pages unsuitable for automatic indexing,
+  no-text pages, and per-page plus total unresolved character-code counts.
 
 The report year describes the document as a whole. A page may contain comparative figures for
-several years.
+several years. Ingestion document and page records use schema version `1.1`.
 
 ### `pages.jsonl`
 
@@ -55,10 +57,23 @@ Each UTF-8 JSON line represents one physical PDF page in source order and contai
 - schema version and document ID;
 - `physical_page_number`, starting at 1;
 - extracted text and its character count;
-- page-specific extraction warnings.
+- page-specific extraction warnings;
+- a `text_quality` object containing `status`, `unresolved_character_code_count`,
+  `requires_review`, and `automatic_indexing_eligible`.
 
 Blank pages remain in the file. A page with no extracted text is flagged as potentially blank or
 requiring OCR; this is not a conclusive scanned-page diagnosis.
+
+## Quality statuses
+
+- `no_detected_issues` means the current limited checks found neither blank text nor tokens matching
+  `(cid:<digits>)`. It does **not** mean the text is verified, complete, correctly ordered, or safe
+  to use as financial evidence without inspection.
+- `issues_detected` means at least one implemented check found a problem. Affected pages have
+  `requires_review: true` and `automatic_indexing_eligible: false`.
+
+CID tokens are counted without altering the extracted text. LedgerLens does not map CID numbers to
+letters, remove the tokens, or infer the missing content.
 
 ### `inspection.md`
 
@@ -78,6 +93,55 @@ for every page. It is an inspection aid, not a substitute for checking the sourc
 4. Review every warning and spot-check pages with very low character counts. Keep a record of any
    omissions, reordered text, merged columns, or broken symbols before building later stages.
 
+## Archive a baseline before re-extraction
+
+Canonical extraction is replaced only when `--overwrite` is explicit. Before doing so, keep all
+three baseline files together in the ignored `artifacts/ingestion-archive/` directory.
+
+Windows PowerShell:
+
+```powershell
+$documentId = "sha256-<full-document-hash>"
+Copy-Item "data/processed/$documentId" `
+  "artifacts/ingestion-archive/report-baseline" -Recurse
+```
+
+Linux:
+
+```bash
+document_id="sha256-<full-document-hash>"
+cp -a "data/processed/$document_id" "artifacts/ingestion-archive/report-baseline"
+```
+
+Do not overwrite an existing archive. Compare `document.json`, `pages.jsonl`, and `inspection.md`
+before relying on a prior archive.
+
+## Alternative single-page recovery
+
+Install the optional pypdf recovery dependency without changing ordinary ingestion behavior:
+
+```bash
+uv sync --locked --group dev --extra recovery
+```
+
+Extract one physical page on Windows PowerShell or Linux:
+
+```bash
+uv run ledgerlens recover-page "data/raw/annual-report.pdf" --page 128
+```
+
+Output is written beneath `artifacts/recovery/<document-id>/page-128/` as `recovery.json` and
+`candidate.txt`. The JSON record includes source hash, physical page, source page count, extractor
+and version, settings, timestamp, exact candidate text, character count, quality findings, and
+explicit approval and indexing flags. Recovery records use schema version `1.0`. Existing output
+is protected unless `--overwrite` is supplied.
+
+A recovery result is always an unreviewed candidate, even when its status is
+`no_detected_issues`. Compare headings, year columns, percentages, signs, labels, values, narrative
+text, and reading order with the rendered source page. Only a documented human review can approve
+it for evidence or canonical replacement. If pypdf remains incomplete or unreadable, targeted OCR
+is the next experiment; OCR is not implemented by this repository.
+
 ## Known limitations
 
 - `pdfplumber` works best on machine-generated PDFs. No OCR is performed.
@@ -89,3 +153,5 @@ for every page. It is an inspection aid, not a substitute for checking the sourc
   are not inferred.
 - Extracted text may differ from visual layout and does not constitute validated financial data.
 - Password-protected PDFs are rejected; this command does not accept or store passwords.
+- CID detection covers only literal `(cid:<digits>)` tokens. Other corruption can pass undetected.
+- pypdf recovery is an alternative text extraction attempt, not OCR and not proof of correctness.

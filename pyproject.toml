@@ -17,6 +17,11 @@ dependencies = [
 [project.scripts]
 ledgerlens = "ledgerlens.cli:main"
 
+[project.optional-dependencies]
+recovery = [
+    "pypdf>=6.21.1",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3,<9",

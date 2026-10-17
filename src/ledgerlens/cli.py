@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ledgerlens import __version__
-from ledgerlens.ingestion import IngestionError, ingest_pdf
+from ledgerlens.ingestion import IngestionError, ingest_pdf, recover_page
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,6 +55,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Replace an existing extraction for identical PDF content.",
     )
     ingest_parser.set_defaults(handler=_run_ingest)
+
+    recovery_parser = subparsers.add_parser(
+        "recover-page",
+        help="Extract one page with the optional pypdf engine for manual review.",
+    )
+    recovery_parser.add_argument("pdf", type=Path, help="Path to a local PDF file.")
+    recovery_parser.add_argument(
+        "--page",
+        required=True,
+        type=int,
+        help="Physical PDF page number, starting from 1.",
+    )
+    recovery_parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("artifacts/recovery"),
+        help="Recovery output parent directory (default: artifacts/recovery).",
+    )
+    recovery_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing recovery candidate for this page.",
+    )
+    recovery_parser.set_defaults(handler=_run_recover_page)
     return parser
 
 
@@ -93,6 +117,21 @@ def _run_ingest(args: argparse.Namespace) -> int:
     print(f"Document ID: {result.document_id}")
     print(f"Pages: {result.page_count}")
     print(f"Pages with no extracted text: {pages_without_text}")
+    unresolved_findings = (
+        ", ".join(
+            f"{page} ({count:,} tokens)"
+            for page, count in result.unresolved_character_code_findings
+        )
+        if result.unresolved_character_code_findings
+        else "none"
+    )
+    pages_requiring_review = (
+        ", ".join(str(page) for page in result.pages_requiring_review)
+        if result.pages_requiring_review
+        else "none"
+    )
+    print(f"Pages with unresolved character codes: {unresolved_findings}")
+    print(f"Pages requiring review: {pages_requiring_review}")
     print(f"Output: {result.output_directory}")
     if result.warnings:
         print("Extraction warnings:")
@@ -100,6 +139,34 @@ def _run_ingest(args: argparse.Namespace) -> int:
             print(f"- {warning}")
     else:
         print("Extraction warnings: none")
+    return 0
+
+
+def _run_recover_page(args: argparse.Namespace) -> int:
+    try:
+        result = recover_page(
+            args.pdf,
+            physical_page_number=args.page,
+            output_root=args.output_root,
+            overwrite=args.overwrite,
+        )
+    except IngestionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Document ID: {result.document_id}")
+    print(f"Physical page: {result.physical_page_number} of {result.page_count}")
+    print(f"Characters extracted: {result.character_count}")
+    print(f"Unresolved character-code tokens: {result.quality.unresolved_character_code_count:,}")
+    print(f"Text quality status: {result.quality.status}")
+    print("Candidate status: requires review; canonical ingestion unchanged")
+    print(f"Output: {result.output_directory}")
+    if result.quality.warnings:
+        print("Recovery warnings:")
+        for warning in result.quality.warnings:
+            print(f"- {warning}")
+    else:
+        print("Recovery warnings: no detected text-quality issues; candidate is not verified")
     return 0
 
 

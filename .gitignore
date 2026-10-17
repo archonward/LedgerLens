@@ -46,6 +46,7 @@ models/
 wandb/
 mlruns/
 logs/
+tmp/
 *.ckpt
 *.safetensors
 *.pt

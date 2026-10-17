@@ -29,6 +29,7 @@ def test_help_works_for_both_entry_points(entry_point: list[str]) -> None:
     assert result.returncode == 0
     assert "doctor" in result.stdout
     assert "ingest" in result.stdout
+    assert "recover-page" in result.stdout
     assert "--version" in result.stdout
 
 

@@ -81,6 +81,20 @@ page-linked text plus metadata and an inspection report beneath
 hash. Existing output is protected unless `--overwrite` is supplied. An optional `--source-url`
 records provenance metadata but is never fetched.
 
+Ingestion also flags blank text and unresolved `(cid:<digits>)` character codes. Pages with
+detected issues require review and are marked unsuitable for automatic indexing. A
+`no_detected_issues` status is not verification of extraction accuracy.
+
+An optional pypdf-based command can extract a single page as a separate recovery candidate:
+
+```bash
+uv sync --locked --group dev --extra recovery
+uv run ledgerlens recover-page "data/raw/report.pdf" --page 128
+```
+
+Recovery candidates never replace canonical ingestion text automatically and always require
+visual review against the source PDF.
+
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,
 or preserve table structure reliably.

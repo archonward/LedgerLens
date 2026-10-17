@@ -18,7 +18,9 @@ from pdfminer.pdfexceptions import PDFException
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 
-SCHEMA_VERSION = "1.0"
+from ledgerlens.ingestion.quality import assess_text_quality
+
+SCHEMA_VERSION = "1.1"
 EXTRACTOR_NAME = "pdfplumber"
 TEXT_SETTINGS = {
     "method": "Page.extract_text",
@@ -28,7 +30,6 @@ TEXT_SETTINGS = {
     "ocr": False,
     "structured_tables": False,
 }
-NO_TEXT_WARNING = "No text was extracted; this page may be blank or may require OCR."
 
 
 class IngestionError(Exception):
@@ -42,11 +43,13 @@ class ExtractionResult:
     document_id: str
     page_count: int
     pages_without_text: tuple[int, ...]
+    pages_requiring_review: tuple[int, ...]
+    unresolved_character_code_findings: tuple[tuple[int, int], ...]
     output_directory: Path
     warnings: tuple[str, ...]
 
 
-def _sha256(path: Path) -> str:
+def compute_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
         with path.open("rb") as source:
@@ -69,7 +72,23 @@ def _page_preview(text: str, limit: int = 500) -> str:
 
 def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, object]]) -> str:
     warnings = metadata["warnings"]
+    quality_summary = metadata["quality_summary"]
     assert isinstance(warnings, list)
+    assert isinstance(quality_summary, dict)
+    unresolved = quality_summary["unresolved_character_codes"]
+    assert isinstance(unresolved, dict)
+    unresolved_pages = unresolved["pages"]
+    assert isinstance(unresolved_pages, list)
+
+    affected_pages = (
+        ", ".join(
+            f"{finding['physical_page_number']} ({finding['count']} tokens)"
+            for finding in unresolved_pages
+        )
+        or "none"
+    )
+    review_pages = quality_summary["pages_requiring_review"]
+    assert isinstance(review_pages, list)
 
     lines = [
         "# Extraction inspection",
@@ -83,6 +102,20 @@ def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, obje
     ]
     if metadata["source_url"]:
         lines.append(f"- Source URL (metadata only): {metadata['source_url']}")
+
+    lines.extend(
+        [
+            "",
+            "## Text quality summary",
+            "",
+            f"- Status: `{quality_summary['status']}`",
+            "- Pages requiring review: "
+            + (", ".join(str(page) for page in review_pages) or "none"),
+            f"- Pages with unresolved character codes: {affected_pages}",
+            f"- Total unresolved character-code tokens: {unresolved['total_count']}",
+            "- A status of `no_detected_issues` does not mean the text is verified.",
+        ]
+    )
 
     lines.extend(
         [
@@ -123,6 +156,12 @@ def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, obje
                 f"### Physical page {page['physical_page_number']}",
                 "",
                 f"Characters extracted: {page['character_count']}",
+                f"Text quality status: `{page['text_quality']['status']}`",
+                "Unresolved character-code tokens: "
+                f"{page['text_quality']['unresolved_character_code_count']}",
+                f"Requires review: {'yes' if page['text_quality']['requires_review'] else 'no'}",
+                "Eligible for automatic indexing: "
+                f"{'yes' if page['text_quality']['automatic_indexing_eligible'] else 'no'}",
                 "",
             ]
         )
@@ -174,7 +213,7 @@ def ingest_pdf(
     if report_year < 1:
         raise IngestionError("Report year must be a positive integer.")
 
-    full_hash = _sha256(path)
+    full_hash = compute_sha256(path)
     document_id = f"sha256-{full_hash}"
     output_root = Path(output_root)
     output_directory = output_root / document_id
@@ -192,6 +231,8 @@ def ingest_pdf(
 
     pages: list[dict[str, object]] = []
     pages_without_text: list[int] = []
+    pages_requiring_review: list[int] = []
+    unresolved_character_code_findings: list[tuple[int, int]] = []
     warnings: list[str] = []
 
     try:
@@ -209,13 +250,20 @@ def ingest_pdf(
                             y_tolerance=3,
                         )
                         extracted_text = text if text is not None else ""
-                        page_warnings: list[str] = []
+                        quality = assess_text_quality(extracted_text)
+                        page_warnings = list(quality.warnings)
                         if not extracted_text.strip():
-                            page_warnings.append(NO_TEXT_WARNING)
                             pages_without_text.append(physical_page_number)
-                            warnings.append(
-                                f"Physical page {physical_page_number}: {NO_TEXT_WARNING}"
+                        if quality.requires_review:
+                            pages_requiring_review.append(physical_page_number)
+                        if quality.unresolved_character_code_count:
+                            unresolved_character_code_findings.append(
+                                (physical_page_number, quality.unresolved_character_code_count)
                             )
+                        warnings.extend(
+                            f"Physical page {physical_page_number}: {warning}"
+                            for warning in page_warnings
+                        )
 
                         page_record: dict[str, object] = {
                             "schema_version": SCHEMA_VERSION,
@@ -224,6 +272,7 @@ def ingest_pdf(
                             "text": extracted_text,
                             "character_count": len(extracted_text),
                             "warnings": page_warnings,
+                            "text_quality": quality.as_dict(),
                         }
                         pages.append(page_record)
                         pages_file.write(json.dumps(page_record, ensure_ascii=False) + "\n")
@@ -267,6 +316,22 @@ def ingest_pdf(
             },
             "extraction_settings": TEXT_SETTINGS,
             "warnings": warnings,
+            "quality_summary": {
+                "status": ("issues_detected" if pages_requiring_review else "no_detected_issues"),
+                "pages_requiring_review": pages_requiring_review,
+                "pages_unsuitable_for_automatic_indexing": pages_requiring_review,
+                "pages_with_no_extracted_text": pages_without_text,
+                "unresolved_character_codes": {
+                    "total_count": sum(count for _, count in unresolved_character_code_findings),
+                    "pages": [
+                        {
+                            "physical_page_number": page_number,
+                            "count": count,
+                        }
+                        for page_number, count in unresolved_character_code_findings
+                    ],
+                },
+            },
         }
 
         (temp_directory / "document.json").write_text(
@@ -294,6 +359,8 @@ def ingest_pdf(
         document_id=document_id,
         page_count=len(pages),
         pages_without_text=tuple(pages_without_text),
+        pages_requiring_review=tuple(pages_requiring_review),
+        unresolved_character_code_findings=tuple(unresolved_character_code_findings),
         output_directory=output_directory.resolve(),
         warnings=tuple(warnings),
     )
