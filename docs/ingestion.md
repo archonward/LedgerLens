@@ -1,7 +1,8 @@
 # Local PDF ingestion
 
-Milestone 1 provides a CPU-only baseline for extracting text from a user-supplied PDF. It does not
-download reports, use OCR, reconstruct tables, or validate financial information.
+LedgerLens provides a CPU-only baseline for extracting text from a user-supplied PDF plus optional,
+targeted OCR recovery for a selected physical page. It does not download reports, reconstruct
+tables, or validate financial information.
 
 ## Add a local report
 
@@ -45,10 +46,11 @@ Document-level metadata contains:
 - extractor name and installed version;
 - extraction settings and aggregated page warnings;
 - a `quality_summary` containing pages requiring review, pages unsuitable for automatic indexing,
-  no-text pages, and per-page plus total unresolved character-code counts.
+  no-text pages, and per-page plus total counts for unresolved character-code tokens, Unicode
+  replacement characters, and unexpected Unicode controls.
 
 The report year describes the document as a whole. A page may contain comparative figures for
-several years. Ingestion document and page records use schema version `1.1`.
+several years. Ingestion document and page records use schema version `1.2`.
 
 ### `pages.jsonl`
 
@@ -58,22 +60,24 @@ Each UTF-8 JSON line represents one physical PDF page in source order and contai
 - `physical_page_number`, starting at 1;
 - extracted text and its character count;
 - page-specific extraction warnings;
-- a `text_quality` object containing `status`, `unresolved_character_code_count`,
-  `requires_review`, and `automatic_indexing_eligible`.
+- a `text_quality` object containing `status`, counts for unresolved character-code tokens,
+  Unicode replacement characters, and unexpected controls, plus `requires_review` and
+  `automatic_indexing_eligible`.
 
 Blank pages remain in the file. A page with no extracted text is flagged as potentially blank or
 requiring OCR; this is not a conclusive scanned-page diagnosis.
 
 ## Quality statuses
 
-- `no_detected_issues` means the current limited checks found neither blank text nor tokens matching
-  `(cid:<digits>)`. It does **not** mean the text is verified, complete, correctly ordered, or safe
-  to use as financial evidence without inspection.
+- `no_detected_issues` means the current limited checks found no blank text, tokens matching
+  `(cid:<digits>)`, U+FFFD replacement characters, or unexpected Unicode controls. Newline,
+  carriage return, and tab are allowed. This status does **not** mean the text is verified,
+  complete, correctly ordered, financially accurate, or safe to use as evidence without review.
 - `issues_detected` means at least one implemented check found a problem. Affected pages have
   `requires_review: true` and `automatic_indexing_eligible: false`.
 
-CID tokens are counted without altering the extracted text. LedgerLens does not map CID numbers to
-letters, remove the tokens, or infer the missing content.
+All findings are counted without altering the extracted text. LedgerLens does not map CID numbers
+to letters, remove or replace characters, or infer missing content.
 
 ### `inspection.md`
 
@@ -133,14 +137,56 @@ uv run ledgerlens recover-page "data/raw/annual-report.pdf" --page 128
 Output is written beneath `artifacts/recovery/<document-id>/page-128/` as `recovery.json` and
 `candidate.txt`. The JSON record includes source hash, physical page, source page count, extractor
 and version, settings, timestamp, exact candidate text, character count, quality findings, and
-explicit approval and indexing flags. Recovery records use schema version `1.0`. Existing output
+explicit approval and indexing flags. Recovery records use schema version `1.1`. Existing output
 is protected unless `--overwrite` is supplied.
 
 A recovery result is always an unreviewed candidate, even when its status is
 `no_detected_issues`. Compare headings, year columns, percentages, signs, labels, values, narrative
 text, and reading order with the rendered source page. Only a documented human review can approve
-it for evidence or canonical replacement. If pypdf remains incomplete or unreadable, targeted OCR
-is the next experiment; OCR is not implemented by this repository.
+it for evidence or canonical replacement.
+
+## Targeted Tesseract OCR
+
+Install the optional Python renderer dependency:
+
+```bash
+uv sync --locked --group dev --extra ocr
+```
+
+Install Tesseract separately with English language data using the supported method for your
+machine. LedgerLens does not install system software or alter `PATH`. Confirm installation with
+`tesseract --version` and `tesseract --list-langs`. On Windows, provide the full executable path if
+needed:
+
+```powershell
+uv run ledgerlens recover-page "data/raw/annual-report.pdf" --page 128 `
+  --engine tesseract `
+  --tesseract-path "C:\Program Files\Tesseract-OCR\tesseract.exe"
+```
+
+Linux, when `tesseract` is on `PATH`:
+
+```bash
+uv run ledgerlens recover-page data/raw/annual-report.pdf --page 128 --engine tesseract
+```
+
+The initial explicit settings are 300 DPI, language `eng`, page segmentation mode 3, OCR engine
+mode 1, and a 120-second timeout for each Tesseract invocation. Override them with `--dpi`,
+`--language`, `--psm`, `--oem`, and `--timeout-seconds` when recording an experiment.
+
+OCR output is stored separately at
+`artifacts/recovery/<document-id>/page-128/tesseract/`. It contains:
+
+- `rendered-page.png`, the selected physical page rendered by `pypdfium2`;
+- `candidate.txt`, the exact UTF-8 OCR text;
+- `words.tsv`, Tesseract word-level output including confidence values where available; and
+- `recovery.json`, provenance, versions, settings, quality findings, and approval flags.
+
+Only the requested physical page is rendered. The source hash binds the experiment to its PDF.
+OCR confidence is not proof of correctness, and text-only OCR commonly loses table associations.
+The candidate remains unapproved, ineligible for automatic indexing, and separate from canonical
+`data/processed` files even if automated checks find no issues. A later, explicit review and
+promotion workflow would be required to select recovered text.
 
 ## Known limitations
 
@@ -153,5 +199,8 @@ is the next experiment; OCR is not implemented by this repository.
   are not inferred.
 - Extracted text may differ from visual layout and does not constitute validated financial data.
 - Password-protected PDFs are rejected; this command does not accept or store passwords.
-- CID detection covers only literal `(cid:<digits>)` tokens. Other corruption can pass undetected.
+- Automated checks cover only blank text, literal `(cid:<digits>)` tokens, U+FFFD, and unexpected
+  Unicode controls. Other corruption, omissions, and incorrect reading order can pass undetected.
 - pypdf recovery is an alternative text extraction attempt, not OCR and not proof of correctness.
+- Tesseract OCR requires external system software and language data. It can misread characters,
+  signs, figures, and layout; confidence values do not validate financial content.

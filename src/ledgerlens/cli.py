@@ -58,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     recovery_parser = subparsers.add_parser(
         "recover-page",
-        help="Extract one page with the optional pypdf engine for manual review.",
+        help="Extract one page as an unapproved recovery candidate.",
     )
     recovery_parser.add_argument("pdf", type=Path, help="Path to a local PDF file.")
     recovery_parser.add_argument(
@@ -66,6 +66,46 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         type=int,
         help="Physical PDF page number, starting from 1.",
+    )
+    recovery_parser.add_argument(
+        "--engine",
+        choices=("pypdf", "tesseract"),
+        default="pypdf",
+        help="Recovery engine (default: pypdf).",
+    )
+    recovery_parser.add_argument(
+        "--tesseract-path",
+        type=Path,
+        help="Explicit path to the Tesseract executable (OCR engine only).",
+    )
+    recovery_parser.add_argument(
+        "--dpi",
+        type=int,
+        default=300,
+        help="PDF rendering resolution for OCR (default: 300).",
+    )
+    recovery_parser.add_argument(
+        "--language",
+        default="eng",
+        help="Tesseract language code (default: eng).",
+    )
+    recovery_parser.add_argument(
+        "--psm",
+        type=int,
+        default=3,
+        help="Tesseract page segmentation mode (default: 3).",
+    )
+    recovery_parser.add_argument(
+        "--oem",
+        type=int,
+        default=1,
+        help="Tesseract OCR engine mode (default: 1).",
+    )
+    recovery_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="Timeout for each Tesseract invocation (default: 120).",
     )
     recovery_parser.add_argument(
         "--output-root",
@@ -131,6 +171,24 @@ def _run_ingest(args: argparse.Namespace) -> int:
         else "none"
     )
     print(f"Pages with unresolved character codes: {unresolved_findings}")
+    replacement_findings = (
+        ", ".join(
+            f"{page} ({count:,} characters)"
+            for page, count in result.replacement_character_findings
+        )
+        if result.replacement_character_findings
+        else "none"
+    )
+    control_findings = (
+        ", ".join(
+            f"{page} ({count:,} characters)"
+            for page, count in result.unexpected_control_character_findings
+        )
+        if result.unexpected_control_character_findings
+        else "none"
+    )
+    print(f"Pages with Unicode replacement characters: {replacement_findings}")
+    print(f"Pages with unexpected control characters: {control_findings}")
     print(f"Pages requiring review: {pages_requiring_review}")
     print(f"Output: {result.output_directory}")
     if result.warnings:
@@ -147,8 +205,15 @@ def _run_recover_page(args: argparse.Namespace) -> int:
         result = recover_page(
             args.pdf,
             physical_page_number=args.page,
+            engine=args.engine,
             output_root=args.output_root,
             overwrite=args.overwrite,
+            tesseract_path=args.tesseract_path,
+            dpi=args.dpi,
+            language=args.language,
+            psm=args.psm,
+            oem=args.oem,
+            timeout_seconds=args.timeout_seconds,
         )
     except IngestionError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -156,8 +221,22 @@ def _run_recover_page(args: argparse.Namespace) -> int:
 
     print(f"Document ID: {result.document_id}")
     print(f"Physical page: {result.physical_page_number} of {result.page_count}")
+    print(f"Recovery engine: {result.engine}")
     print(f"Characters extracted: {result.character_count}")
     print(f"Unresolved character-code tokens: {result.quality.unresolved_character_code_count:,}")
+    print(f"Unicode replacement characters: {result.quality.replacement_character_count:,}")
+    print(
+        "Unexpected Unicode control characters: "
+        f"{result.quality.unexpected_control_character_count:,}"
+    )
+    if result.ocr_word_count is not None:
+        print(f"OCR words: {result.ocr_word_count:,}")
+        confidence = (
+            f"{result.mean_word_confidence:.2f}"
+            if result.mean_word_confidence is not None
+            else "unavailable"
+        )
+        print(f"Mean OCR word confidence: {confidence} (not proof of correctness)")
     print(f"Text quality status: {result.quality.status}")
     print("Candidate status: requires review; canonical ingestion unchanged")
     print(f"Output: {result.output_directory}")

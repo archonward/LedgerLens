@@ -31,8 +31,8 @@ See the [ingestion guide](docs/ingestion.md), [architecture](docs/architecture.m
 ## Setup
 
 Python 3.11 is the initial tested baseline. Dependencies are managed and locked with
-[uv](https://docs.astral.sh/uv/). PDF text extraction uses `pdfplumber`; it does not perform OCR
-or structured table extraction.
+[uv](https://docs.astral.sh/uv/). Canonical PDF text extraction uses `pdfplumber`. Targeted
+single-page OCR is optional; structured table extraction is not implemented.
 
 ### Windows PowerShell
 
@@ -81,9 +81,10 @@ page-linked text plus metadata and an inspection report beneath
 hash. Existing output is protected unless `--overwrite` is supplied. An optional `--source-url`
 records provenance metadata but is never fetched.
 
-Ingestion also flags blank text and unresolved `(cid:<digits>)` character codes. Pages with
-detected issues require review and are marked unsuitable for automatic indexing. A
-`no_detected_issues` status is not verification of extraction accuracy.
+Ingestion flags blank text, unresolved `(cid:<digits>)` tokens, Unicode replacement characters,
+and unexpected Unicode controls (ordinary tabs and line endings are allowed). Pages with detected
+issues require review and are marked unsuitable for automatic indexing. These limited checks do
+not establish completeness, correct reading order, financial accuracy, or verification.
 
 An optional pypdf-based command can extract a single page as a separate recovery candidate:
 
@@ -94,6 +95,18 @@ uv run ledgerlens recover-page "data/raw/report.pdf" --page 128
 
 Recovery candidates never replace canonical ingestion text automatically and always require
 visual review against the source PDF.
+
+Targeted OCR uses `pypdfium2` to render only the requested physical page and invokes a separately
+installed Tesseract executable. It preserves the image, exact OCR text, word-level TSV, settings,
+versions, and quality findings in an engine-specific directory:
+
+```bash
+uv sync --locked --group dev --extra ocr
+uv run ledgerlens recover-page "data/raw/report.pdf" --page 128 --engine tesseract
+```
+
+Tesseract is system software and is not installed or configured by LedgerLens. Use
+`--tesseract-path` when it is not on `PATH`. OCR confidence is not proof of correctness.
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

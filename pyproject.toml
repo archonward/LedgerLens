@@ -21,6 +21,9 @@ ledgerlens = "ledgerlens.cli:main"
 recovery = [
     "pypdf>=6.21.1",
 ]
+ocr = [
+    "pypdfium2>=5.14.0",
+]
 
 [dependency-groups]
 dev = [

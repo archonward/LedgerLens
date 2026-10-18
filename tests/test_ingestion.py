@@ -14,6 +14,7 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.pdfgen import canvas
 
 from ledgerlens.ingestion import IngestionError, assess_text_quality, ingest_pdf, recover_page
+from ledgerlens.ingestion import pdf as pdf_module
 from ledgerlens.ingestion import recovery as recovery_module
 
 
@@ -79,7 +80,7 @@ def test_multi_page_pdf_produces_ordered_page_records_and_provenance(tmp_path: P
     assert metadata["report_year"] == 2024
     assert metadata["source_url"] == "https://example.test/fictional-report.pdf"
     assert metadata["page_count"] == 3
-    assert metadata["schema_version"] == "1.1"
+    assert metadata["schema_version"] == "1.2"
     assert metadata["quality_summary"]["status"] == "issues_detected"
     assert metadata["quality_summary"]["pages_requiring_review"] == [2]
     assert metadata["extractor"]["name"] == "pdfplumber"
@@ -131,6 +132,66 @@ def test_clean_text_has_no_detected_issues_but_is_not_labelled_verified() -> Non
     assert quality.unresolved_character_code_count == 0
     assert quality.warnings == ()
     assert "verified" not in quality.status
+
+
+def test_quality_detection_counts_replacement_and_unexpected_controls_without_mutation() -> None:
+    source = "Heading\tvalue\r\nBad replacement: \ufffd controls: \x00\x0b"
+
+    quality = assess_text_quality(source)
+
+    assert quality.replacement_character_count == 1
+    assert quality.unexpected_control_character_count == 2
+    assert quality.requires_review is True
+    assert source == "Heading\tvalue\r\nBad replacement: \ufffd controls: \x00\x0b"
+
+
+def test_quality_detection_allows_ordinary_whitespace_and_preserves_source() -> None:
+    source = "Heading\tvalue\r\nSecond line"
+
+    quality = assess_text_quality(source)
+
+    assert quality.replacement_character_count == 0
+    assert quality.unexpected_control_character_count == 0
+    assert quality.status == "no_detected_issues"
+    assert source == "Heading\tvalue\r\nSecond line"
+
+
+def test_expanded_quality_findings_surface_without_changing_page_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "fictional.pdf"
+    source.write_bytes(b"fictional local PDF bytes")
+    extracted = "Exact\ttext\r\nReplacement \ufffd and control \x00"
+
+    class FakePage:
+        def extract_text(self, **_: object) -> str:
+            return extracted
+
+    class FakePdf:
+        pages = [FakePage()]
+
+        def __enter__(self) -> FakePdf:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    monkeypatch.setattr(pdf_module.pdfplumber, "open", lambda _: FakePdf())
+
+    result = ingest_pdf(source, company="Fictional", report_year=2026, output_root=tmp_path / "out")
+    metadata = json.loads((result.output_directory / "document.json").read_text("utf-8"))
+    page = read_jsonl(result.output_directory / "pages.jsonl")[0]
+    inspection = (result.output_directory / "inspection.md").read_text("utf-8")
+
+    assert page["text"] == extracted
+    assert page["text_quality"]["replacement_character_count"] == 1
+    assert page["text_quality"]["unexpected_control_character_count"] == 1
+    assert metadata["quality_summary"]["replacement_characters"]["total_count"] == 1
+    assert metadata["quality_summary"]["unexpected_control_characters"]["total_count"] == 1
+    assert result.replacement_character_findings == ((1, 1),)
+    assert result.unexpected_control_character_findings == ((1, 1),)
+    assert "Pages with Unicode replacement characters: 1 (1 character)" in inspection
+    assert "Pages with unexpected control characters: 1 (1 character)" in inspection
 
 
 def test_cid_findings_appear_in_page_document_and_inspection_summaries(tmp_path: Path) -> None:
@@ -362,3 +423,238 @@ def test_missing_optional_recovery_dependency_has_helpful_error(
 
     with pytest.raises(IngestionError, match="uv sync --extra recovery --group dev"):
         recover_page(source, physical_page_number=1, output_root=tmp_path / "recovery")
+
+
+def test_tesseract_executable_resolution_supports_explicit_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "tesseract.exe"
+    executable.write_bytes(b"fictional executable")
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+
+    assert recovery_module.resolve_tesseract_executable(executable) == executable.resolve()
+
+    with pytest.raises(IngestionError, match="does not exist"):
+        recovery_module.resolve_tesseract_executable(tmp_path / "missing.exe")
+
+
+def test_missing_tesseract_has_helpful_error_and_publishes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "fictional.pdf"
+    make_fictional_pdf(source, blank_middle_page=False)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    output_root = tmp_path / "recovery"
+
+    with pytest.raises(IngestionError, match="Install Tesseract.*--tesseract-path"):
+        recover_page(
+            source,
+            physical_page_number=1,
+            engine="tesseract",
+            output_root=output_root,
+        )
+
+    assert not list(output_root.rglob("recovery.json"))
+
+
+def test_pdfium_renderer_uses_requested_physical_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    accessed: list[int] = []
+    rendered_scales: list[float] = []
+
+    class FakeImage:
+        def save(self, path: Path, *, format: str) -> None:
+            assert format == "PNG"
+            path.write_bytes(b"png")
+
+    class FakeBitmap:
+        def to_pil(self) -> FakeImage:
+            return FakeImage()
+
+        def close(self) -> None:
+            pass
+
+    class FakePage:
+        def render(self, *, scale: float) -> FakeBitmap:
+            rendered_scales.append(scale)
+            return FakeBitmap()
+
+        def close(self) -> None:
+            pass
+
+    class FakeDocument:
+        def __init__(self, _: Path) -> None:
+            pass
+
+        def __len__(self) -> int:
+            return 5
+
+        def __getitem__(self, index: int) -> FakePage:
+            accessed.append(index)
+            return FakePage()
+
+        def close(self) -> None:
+            pass
+
+    class FakePdfium:
+        PdfDocument = FakeDocument
+
+    monkeypatch.setattr(recovery_module, "_load_pdfium", lambda: (FakePdfium, "test-version"))
+    output = tmp_path / "page.png"
+
+    page_count, renderer_version = recovery_module._render_page_with_pdfium(
+        tmp_path / "source.pdf",
+        physical_page_number=4,
+        dpi=300,
+        output_path=output,
+    )
+
+    assert page_count == 5
+    assert renderer_version == "test-version"
+    assert accessed == [3]
+    assert rendered_scales == [pytest.approx(300 / 72)]
+    assert output.read_bytes() == b"png"
+
+
+def test_external_ocr_failure_and_timeout_are_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    def failed_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args[0], 1, stdout="", stderr="fictional OCR failure")
+
+    monkeypatch.setattr(subprocess, "run", failed_run)
+    with pytest.raises(IngestionError, match="exit code 1: fictional OCR failure"):
+        recovery_module._run_external(["tesseract"], timeout_seconds=2, purpose="OCR")
+
+    def timed_out_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(args[0], 2)
+
+    monkeypatch.setattr(subprocess, "run", timed_out_run)
+    with pytest.raises(IngestionError, match="timed out after 2 seconds"):
+        recovery_module._run_external(["tesseract"], timeout_seconds=2, purpose="OCR")
+
+
+def test_tesseract_invocation_preserves_exact_text_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_bytes = b"Line 1\r\nLine 2\n"
+
+    def fake_run_external(
+        command: list[str], *, timeout_seconds: int, purpose: str
+    ) -> subprocess.CompletedProcess[str]:
+        assert timeout_seconds == 30
+        output_base = Path(command[2])
+        if command[-1] == "tsv":
+            output_base.with_suffix(".tsv").write_text(
+                "level\tconf\ttext\n5\t94.5\tLine\n", encoding="utf-8"
+            )
+        else:
+            output_base.with_suffix(".txt").write_bytes(source_bytes)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(recovery_module, "_run_external", fake_run_external)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+
+    text, words_path, word_count, confidence = recovery_module._invoke_tesseract(
+        executable=tmp_path / "tesseract.exe",
+        image_path=image,
+        work_directory=tmp_path,
+        language="eng",
+        psm=3,
+        oem=1,
+        dpi=300,
+        timeout_seconds=30,
+    )
+
+    assert text == "Line 1\r\nLine 2\n"
+    assert (tmp_path / "candidate.txt").read_bytes() == source_bytes
+    assert words_path == tmp_path / "words.tsv"
+    assert word_count == 1
+    assert confidence == 94.5
+
+
+def test_tesseract_candidate_is_separate_protected_and_preserves_canonical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "fictional.pdf"
+    make_fictional_pdf(source, blank_middle_page=False)
+    ingestion = ingest_pdf(
+        source,
+        company="Fictional Company",
+        report_year=2024,
+        output_root=tmp_path / "processed",
+    )
+    canonical_hashes = {
+        name: file_hash(ingestion.output_directory / name)
+        for name in ("document.json", "pages.jsonl", "inspection.md")
+    }
+    executable = tmp_path / "tesseract.exe"
+    executable.write_bytes(b"fictional executable")
+
+    def fake_render(
+        pdf_path: Path, *, physical_page_number: int, dpi: int, output_path: Path
+    ) -> tuple[int, str]:
+        assert pdf_path == source
+        assert physical_page_number == 1
+        assert dpi == 300
+        output_path.write_bytes(b"fictional png")
+        return 2, "test-pdfium"
+
+    def fake_ocr(**kwargs: object) -> tuple[str, Path, int, float]:
+        assert kwargs["executable"] == executable.resolve()
+        assert kwargs["language"] == "eng"
+        assert kwargs["psm"] == 3
+        assert kwargs["oem"] == 1
+        work_directory = Path(str(kwargs["work_directory"]))
+        words = work_directory / "words.tsv"
+        words.write_text("level\tconf\ttext\n5\t96\tRevenue\n", encoding="utf-8")
+        return "OCR candidate text -75\n", words, 4, 91.5
+
+    monkeypatch.setattr(recovery_module, "_render_page_with_pdfium", fake_render)
+    monkeypatch.setattr(recovery_module, "_tesseract_version", lambda _: "5.test")
+    monkeypatch.setattr(recovery_module, "_invoke_tesseract", fake_ocr)
+
+    candidate = recover_page(
+        source,
+        physical_page_number=1,
+        engine="tesseract",
+        tesseract_path=executable,
+        output_root=tmp_path / "recovery",
+    )
+    record = json.loads((candidate.output_directory / "recovery.json").read_text("utf-8"))
+
+    assert candidate.output_directory.name == "tesseract"
+    assert record["engine"] == "tesseract"
+    assert record["extraction_settings"]["dpi"] == 300
+    assert record["ocr_word_count"] == 4
+    assert record["approved_for_evidence"] is False
+    assert (candidate.output_directory / "rendered-page.png").is_file()
+    assert (candidate.output_directory / "words.tsv").is_file()
+    assert (candidate.output_directory / "candidate.txt").read_text("utf-8") == (
+        "OCR candidate text -75\n"
+    )
+    with pytest.raises(IngestionError, match="--overwrite"):
+        recover_page(
+            source,
+            physical_page_number=1,
+            engine="tesseract",
+            tesseract_path=executable,
+            output_root=tmp_path / "recovery",
+        )
+    assert canonical_hashes == {
+        name: file_hash(ingestion.output_directory / name)
+        for name in ("document.json", "pages.jsonl", "inspection.md")
+    }
+
+
+def test_unknown_recovery_engine_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "fictional.pdf"
+    make_fictional_pdf(source, blank_middle_page=False)
+
+    with pytest.raises(IngestionError, match="Unsupported recovery engine"):
+        recover_page(
+            source,
+            physical_page_number=1,
+            engine="unknown",
+            output_root=tmp_path / "recovery",
+        )

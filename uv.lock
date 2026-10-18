@@ -343,6 +343,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ocr = [
+    { name = "pypdfium2" },
+]
 recovery = [
     { name = "pypdf" },
 ]
@@ -358,8 +361,9 @@ dev = [
 requires-dist = [
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pypdf", marker = "extra == 'recovery'", specifier = ">=6.21.1" },
+    { name = "pypdfium2", marker = "extra == 'ocr'", specifier = ">=5.14.0" },
 ]
-provides-extras = ["recovery"]
+provides-extras = ["recovery", "ocr"]
 
 [package.metadata.requires-dev]
 dev = [

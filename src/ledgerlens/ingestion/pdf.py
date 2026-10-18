@@ -20,7 +20,7 @@ from pdfplumber.utils.exceptions import PdfminerException
 
 from ledgerlens.ingestion.quality import assess_text_quality
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 EXTRACTOR_NAME = "pdfplumber"
 TEXT_SETTINGS = {
     "method": "Page.extract_text",
@@ -45,6 +45,8 @@ class ExtractionResult:
     pages_without_text: tuple[int, ...]
     pages_requiring_review: tuple[int, ...]
     unresolved_character_code_findings: tuple[tuple[int, int], ...]
+    replacement_character_findings: tuple[tuple[int, int], ...]
+    unexpected_control_character_findings: tuple[tuple[int, int], ...]
     output_directory: Path
     warnings: tuple[str, ...]
 
@@ -70,6 +72,18 @@ def _page_preview(text: str, limit: int = 500) -> str:
     return "\n".join(f"    {line}" for line in preview.splitlines())
 
 
+def _format_counted_pages(findings: object, noun: str) -> str:
+    assert isinstance(findings, list)
+    return (
+        ", ".join(
+            f"{finding['physical_page_number']} ({finding['count']} {noun}"
+            f"{'s' if finding['count'] != 1 else ''})"
+            for finding in findings
+        )
+        or "none"
+    )
+
+
 def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, object]]) -> str:
     warnings = metadata["warnings"]
     quality_summary = metadata["quality_summary"]
@@ -79,6 +93,10 @@ def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, obje
     assert isinstance(unresolved, dict)
     unresolved_pages = unresolved["pages"]
     assert isinstance(unresolved_pages, list)
+    replacements = quality_summary["replacement_characters"]
+    controls = quality_summary["unexpected_control_characters"]
+    assert isinstance(replacements, dict)
+    assert isinstance(controls, dict)
 
     affected_pages = (
         ", ".join(
@@ -113,6 +131,12 @@ def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, obje
             + (", ".join(str(page) for page in review_pages) or "none"),
             f"- Pages with unresolved character codes: {affected_pages}",
             f"- Total unresolved character-code tokens: {unresolved['total_count']}",
+            "- Pages with Unicode replacement characters: "
+            + _format_counted_pages(replacements["pages"], "character"),
+            f"- Total Unicode replacement characters: {replacements['total_count']}",
+            "- Pages with unexpected control characters: "
+            + _format_counted_pages(controls["pages"], "character"),
+            f"- Total unexpected control characters: {controls['total_count']}",
             "- A status of `no_detected_issues` does not mean the text is verified.",
         ]
     )
@@ -159,6 +183,10 @@ def _inspection_markdown(metadata: dict[str, object], pages: list[dict[str, obje
                 f"Text quality status: `{page['text_quality']['status']}`",
                 "Unresolved character-code tokens: "
                 f"{page['text_quality']['unresolved_character_code_count']}",
+                "Unicode replacement characters: "
+                f"{page['text_quality']['replacement_character_count']}",
+                "Unexpected Unicode control characters: "
+                f"{page['text_quality']['unexpected_control_character_count']}",
                 f"Requires review: {'yes' if page['text_quality']['requires_review'] else 'no'}",
                 "Eligible for automatic indexing: "
                 f"{'yes' if page['text_quality']['automatic_indexing_eligible'] else 'no'}",
@@ -233,6 +261,8 @@ def ingest_pdf(
     pages_without_text: list[int] = []
     pages_requiring_review: list[int] = []
     unresolved_character_code_findings: list[tuple[int, int]] = []
+    replacement_character_findings: list[tuple[int, int]] = []
+    unexpected_control_character_findings: list[tuple[int, int]] = []
     warnings: list[str] = []
 
     try:
@@ -259,6 +289,14 @@ def ingest_pdf(
                         if quality.unresolved_character_code_count:
                             unresolved_character_code_findings.append(
                                 (physical_page_number, quality.unresolved_character_code_count)
+                            )
+                        if quality.replacement_character_count:
+                            replacement_character_findings.append(
+                                (physical_page_number, quality.replacement_character_count)
+                            )
+                        if quality.unexpected_control_character_count:
+                            unexpected_control_character_findings.append(
+                                (physical_page_number, quality.unexpected_control_character_count)
                             )
                         warnings.extend(
                             f"Physical page {physical_page_number}: {warning}"
@@ -331,6 +369,20 @@ def ingest_pdf(
                         for page_number, count in unresolved_character_code_findings
                     ],
                 },
+                "replacement_characters": {
+                    "total_count": sum(count for _, count in replacement_character_findings),
+                    "pages": [
+                        {"physical_page_number": page_number, "count": count}
+                        for page_number, count in replacement_character_findings
+                    ],
+                },
+                "unexpected_control_characters": {
+                    "total_count": sum(count for _, count in unexpected_control_character_findings),
+                    "pages": [
+                        {"physical_page_number": page_number, "count": count}
+                        for page_number, count in unexpected_control_character_findings
+                    ],
+                },
             },
         }
 
@@ -361,6 +413,8 @@ def ingest_pdf(
         pages_without_text=tuple(pages_without_text),
         pages_requiring_review=tuple(pages_requiring_review),
         unresolved_character_code_findings=tuple(unresolved_character_code_findings),
+        replacement_character_findings=tuple(replacement_character_findings),
+        unexpected_control_character_findings=tuple(unexpected_control_character_findings),
         output_directory=output_directory.resolve(),
         warnings=tuple(warnings),
     )

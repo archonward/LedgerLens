@@ -23,7 +23,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install locked dependencies
-        run: uv sync --locked --group dev --python 3.11
+        run: uv sync --locked --group dev --all-extras --python 3.11
 
       - name: Lint
         run: uv run ruff check .
