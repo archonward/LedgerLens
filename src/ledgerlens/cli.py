@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 import shutil
 import sys
+import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 
 from ledgerlens import __version__
 from ledgerlens.evidence import prepare_evidence
 from ledgerlens.ingestion import IngestionError, ingest_pdf, recover_page
+from ledgerlens.retrieval import BM25Retriever, RetrievalError, load_evidence_export
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -147,6 +150,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Replace an existing evidence export for this document.",
     )
     evidence_parser.set_defaults(handler=_run_prepare_evidence)
+
+    retrieve_parser = subparsers.add_parser(
+        "retrieve",
+        help="Rank selected evidence pages with the BM25 baseline.",
+    )
+    retrieve_parser.add_argument(
+        "evidence_directory",
+        type=Path,
+        help="Directory containing selected evidence.jsonl and manifest.json.",
+    )
+    retrieve_parser.add_argument("--query", required=True, help="Natural-language search query.")
+    retrieve_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=5,
+        help="Maximum number of positive-score pages to return (default: 5).",
+    )
+    retrieve_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of the human-readable view.",
+    )
+    retrieve_parser.set_defaults(handler=_run_retrieve)
     return parser
 
 
@@ -297,6 +323,66 @@ def _run_prepare_evidence(args: argparse.Namespace) -> int:
     print(f"Excluded physical pages: {excluded}")
     print(f"Pages carrying limitations: {limited}")
     print(f"Output: {result.output_directory}")
+    return 0
+
+
+def _run_retrieve(args: argparse.Namespace) -> int:
+    try:
+        corpus = load_evidence_export(args.evidence_directory)
+        retriever = BM25Retriever(corpus)
+        results = retriever.search(args.query, top_k=args.top_k)
+    except RetrievalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "query": args.query,
+                    "document_id": corpus.document_id,
+                    "bm25": {"k1": retriever.k1, "b": retriever.b},
+                    "result_count": len(results),
+                    "no_match": not results,
+                    "results": [result.to_dict() for result in results],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(f"Document ID: {corpus.document_id}")
+    print(f"Query: {args.query}")
+    print(f"BM25: k1={retriever.k1}, b={retriever.b}")
+    print(f"Positive matches returned: {len(results)}")
+    print("Scores rank lexical relevance; they are not confidence or accuracy measures.")
+    if not results:
+        print("No positive BM25 matches found.")
+        return 0
+
+    for result in results:
+        page = result.page
+        print()
+        print(
+            f"{result.rank}. Physical PDF page {page.physical_page_number} "
+            f"| score {result.score:.6f} | {page.method}"
+        )
+        print(f"   Selected-text SHA-256: {page.text_sha256}")
+        print(f"   Source SHA-256: {page.provenance.get('source_sha256', 'unavailable')}")
+        print("   Provenance: " + json.dumps(page.provenance, ensure_ascii=False, sort_keys=True))
+        if page.review_provenance is not None:
+            print(
+                "   Review provenance: "
+                + json.dumps(page.review_provenance, ensure_ascii=False, sort_keys=True)
+            )
+        warnings = page.warnings
+        print(f"   Warnings: {'; '.join(warnings) if warnings else 'none recorded'}")
+        limitations = "; ".join(page.known_limitations) or "none recorded"
+        print(f"   Limitations: {limitations}")
+        print("   Excerpt:")
+        for line in result.excerpt.splitlines() or [""]:
+            print(textwrap.indent(line, "     "))
     return 0
 
 

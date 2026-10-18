@@ -1,7 +1,8 @@
-# Planned architecture
+# Architecture
 
-PDF text ingestion and explicit reviewed-evidence selection are implemented as CPU-only
-foundations. Retrieval and later components described here are **planned and unimplemented**.
+PDF text ingestion, explicit reviewed-evidence selection, and page-level BM25 retrieval are
+implemented as CPU-only foundations. Later components described here are **planned and
+unimplemented**.
 
 ## Pipeline
 
@@ -14,8 +15,10 @@ foundations. Retrieval and later components described here are **planned and uni
    canonical pages plus only those reviewed recovery derivatives named by an explicit,
    hash-validated manifest. Flagged pages without a valid selection remain excluded. Selection
    does not approve numerical interpretation or establish extraction accuracy.
-3. **Retrieval (planned):** index the extracted material, retrieve candidates relevant to a
-   question, and rank evidence while retaining its complete provenance.
+3. **Retrieval (baseline implemented):** validate the selected-evidence export and build a
+   deterministic in-memory BM25 index with one document per physical page. Positive-score pages
+   retain selected-text and source hashes, extraction method, review provenance, screening
+   warnings, and limitations. Passage splitting, semantic retrieval, and reranking remain planned.
 4. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
    period choices, currency, units, formula, and result must be recorded so the calculation can be
    reproduced.

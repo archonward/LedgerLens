@@ -31,6 +31,7 @@ def test_help_works_for_both_entry_points(entry_point: list[str]) -> None:
     assert "ingest" in result.stdout
     assert "recover-page" in result.stdout
     assert "prepare-evidence" in result.stdout
+    assert "retrieve" in result.stdout
     assert "--version" in result.stdout
 
 
