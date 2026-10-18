@@ -1,22 +1,27 @@
 # Planned architecture
 
-PDF text ingestion is implemented as a CPU-only baseline. All later components described here are
-**planned and unimplemented**.
+PDF text ingestion and explicit reviewed-evidence selection are implemented as CPU-only
+foundations. Retrieval and later components described here are **planned and unimplemented**.
 
 ## Pipeline
 
 1. **Ingestion (partially implemented):** the current command extracts page-linked PDF text and
-   records document identity plus a user-supplied report year. OCR, structured table extraction,
-   printed page-label detection, and interpretation of periods, currency, and units remain
-   planned. Future normalization must retain links to the original representation.
-2. **Retrieval (planned):** index the extracted material, retrieve candidates relevant to a
+   records document identity plus a user-supplied report year. Targeted single-page OCR recovery is
+   available, while structured table extraction, printed page-label detection, and interpretation
+   of periods, currency, and units remain planned. Future normalization must retain links to the
+   original representation.
+2. **Evidence selection (implemented for the prototype):** select automatically eligible
+   canonical pages plus only those reviewed recovery derivatives named by an explicit,
+   hash-validated manifest. Flagged pages without a valid selection remain excluded. Selection
+   does not approve numerical interpretation or establish extraction accuracy.
+3. **Retrieval (planned):** index the extracted material, retrieve candidates relevant to a
    question, and rank evidence while retaining its complete provenance.
-3. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
+4. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
    period choices, currency, units, formula, and result must be recorded so the calculation can be
    reproduced.
-4. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
+5. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
    results, attach citations to supported claims, and state when available evidence is insufficient.
-5. **Evaluation (planned):** measure retrieval, numerical, citation, abstention, and latency
+6. **Evaluation (planned):** measure retrieval, numerical, citation, abstention, and latency
    behavior against manually verified examples.
 
 ## Information types

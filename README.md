@@ -25,8 +25,8 @@ docs/                  Architecture and evaluation plans
 .github/workflows/     Continuous integration
 ```
 
-See the [ingestion guide](docs/ingestion.md), [architecture](docs/architecture.md), and
-[evaluation](docs/evaluation.md) documents.
+See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evidence.md),
+[architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
 
@@ -107,6 +107,19 @@ uv run ledgerlens recover-page "data/raw/report.pdf" --page 128 --engine tessera
 
 Tesseract is system software and is not installed or configured by LedgerLens. Use
 `--tesseract-path` when it is not on `PATH`. OCR confidence is not proof of correctness.
+
+An explicit, hash-bound review manifest can select a corrected recovery without modifying the
+canonical extraction or original OCR artifacts:
+
+```bash
+uv run ledgerlens prepare-evidence "data/processed/sha256-<hash>" \
+  --review-manifest "artifacts/reviewed-recovery/sha256-<hash>/review-manifest.json"
+```
+
+Selected evidence is intended only for a page-level retrieval prototype. Review permission does
+not validate structured financial calculations or make automated screening equivalent to
+verification. See [docs/evidence.md](docs/evidence.md) for the artifact distinctions and manifest
+format.
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

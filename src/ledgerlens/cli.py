@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ledgerlens import __version__
+from ledgerlens.evidence import prepare_evidence
 from ledgerlens.ingestion import IngestionError, ingest_pdf, recover_page
 
 
@@ -119,6 +120,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Replace an existing recovery candidate for this page.",
     )
     recovery_parser.set_defaults(handler=_run_recover_page)
+
+    evidence_parser = subparsers.add_parser(
+        "prepare-evidence",
+        help="Select canonical pages and explicitly reviewed recoveries for a prototype.",
+    )
+    evidence_parser.add_argument(
+        "canonical_extraction_directory",
+        type=Path,
+        help="Directory containing canonical document.json and pages.jsonl.",
+    )
+    evidence_parser.add_argument(
+        "--review-manifest",
+        type=Path,
+        help="Optional explicit reviewed-recovery selection manifest.",
+    )
+    evidence_parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("artifacts/evidence"),
+        help="Evidence output parent directory (default: artifacts/evidence).",
+    )
+    evidence_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing evidence export for this document.",
+    )
+    evidence_parser.set_defaults(handler=_run_prepare_evidence)
     return parser
 
 
@@ -246,6 +274,29 @@ def _run_recover_page(args: argparse.Namespace) -> int:
             print(f"- {warning}")
     else:
         print("Recovery warnings: no detected text-quality issues; candidate is not verified")
+    return 0
+
+
+def _run_prepare_evidence(args: argparse.Namespace) -> int:
+    try:
+        result = prepare_evidence(
+            args.canonical_extraction_directory,
+            review_manifest_path=args.review_manifest,
+            output_root=args.output_root,
+            overwrite=args.overwrite,
+        )
+    except IngestionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    excluded = ", ".join(str(page) for page in result.excluded_pages) or "none"
+    limited = ", ".join(str(page) for page in result.pages_with_limitations) or "none"
+    print(f"Document ID: {result.document_id}")
+    print(f"Canonical pages selected: {result.canonical_count}")
+    print(f"Reviewed recoveries selected: {result.reviewed_recovery_count}")
+    print(f"Excluded physical pages: {excluded}")
+    print(f"Pages carrying limitations: {limited}")
+    print(f"Output: {result.output_directory}")
     return 0
 
 
