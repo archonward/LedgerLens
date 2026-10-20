@@ -81,7 +81,7 @@ labels, columns, signs, periods, currencies, and units. A matched page must stil
 before using its contents, especially when it carries a limitation. Retrieval performs no
 calculation and makes no numerical conclusion.
 
-No benchmark quality claim has been made. The baseline should be measured on the manually verified,
-held-out questions described in [evaluation.md](evaluation.md), using retrieval metrics and
-page-level relevance judgments. A later embedding baseline can be compared on the same split while
-preserving the selected evidence and provenance contract.
+No benchmark quality claim has been made. The implemented [evaluation framework](evaluation.md)
+measures the baseline on separately supplied, manually verified page judgments while excluding
+provisional questions from official metrics. A later embedding baseline can be compared on the
+same held-out split while preserving the selected evidence and provenance contract.

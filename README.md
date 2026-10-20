@@ -7,9 +7,9 @@ claims can be traced back to source documents.
 
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
-> page-level BM25 retrieval. It is not yet a working financial-analysis assistant: financial
-> interpretation, calculations, answer generation, and evaluation remain planned. No reports,
-> datasets, or models are included.
+> page-level BM25 retrieval, and offline retrieval evaluation. It is not yet a working
+> financial-analysis assistant: financial interpretation, calculations, answer generation, and
+> later evaluation stages remain planned. No reports, datasets, or models are included.
 
 ## Repository layout
 
@@ -134,6 +134,17 @@ uv run ledgerlens retrieve "artifacts/evidence/sha256-<hash>" \
 Add `--json` for structured output. Retrieval never reads the PDF or canonical ingestion directly,
 and it does not discover recovery candidates. BM25 scores rank lexical matches; they are not
 confidence, correctness, or financial-accuracy measures. See [docs/retrieval.md](docs/retrieval.md).
+
+Verified and provisional question sets can be evaluated separately from retrieval outputs:
+
+```bash
+uv run ledgerlens evaluate-retrieval "artifacts/evidence/sha256-<hash>" \
+  "configs/evaluation/questions.json" --split development --k 1 3 5 10 \
+  --output "artifacts/evaluation/development-bm25.json"
+```
+
+Only manually verified questions contribute to Hit@K, Recall@K, and MRR. See
+[docs/evaluation.md](docs/evaluation.md) for the schema, split discipline, and metric definitions.
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

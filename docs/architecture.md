@@ -24,8 +24,10 @@ unimplemented**.
    reproduced.
 5. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
    results, attach citations to supported claims, and state when available evidence is insufficient.
-6. **Evaluation (planned):** measure retrieval, numerical, citation, abstention, and latency
-   behavior against manually verified examples.
+6. **Evaluation (retrieval framework implemented):** evaluate deterministic ranked physical pages
+   using separate, manually verified relevance judgments and development/held-out splits. Hit@K,
+   Recall@K, and MRR are implemented; numerical, citation, abstention, generation, and latency
+   evaluation remain planned.
 
 ## Information types
 

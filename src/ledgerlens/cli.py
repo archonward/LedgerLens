@@ -12,6 +12,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ledgerlens import __version__
+from ledgerlens.evaluation import (
+    EvaluationError,
+    evaluate_bm25,
+    load_evaluation_set,
+    write_evaluation_report,
+)
 from ledgerlens.evidence import prepare_evidence
 from ledgerlens.ingestion import IngestionError, ingest_pdf, recover_page
 from ledgerlens.retrieval import BM25Retriever, RetrievalError, load_evidence_export
@@ -173,6 +179,47 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON instead of the human-readable view.",
     )
     retrieve_parser.set_defaults(handler=_run_retrieve)
+
+    evaluation_parser = subparsers.add_parser(
+        "evaluate-retrieval",
+        help="Evaluate BM25 against independently supplied page judgments.",
+    )
+    evaluation_parser.add_argument(
+        "evidence_directory",
+        type=Path,
+        help="Directory containing selected evidence.jsonl and manifest.json.",
+    )
+    evaluation_parser.add_argument(
+        "evaluation_set",
+        type=Path,
+        help="JSON file containing questions and page-level relevance judgments.",
+    )
+    evaluation_parser.add_argument(
+        "--split",
+        required=True,
+        choices=("development", "held_out"),
+        help="Evaluate exactly one predefined dataset split.",
+    )
+    evaluation_parser.add_argument(
+        "--k",
+        dest="cutoffs",
+        type=int,
+        nargs="+",
+        default=(1, 3, 5, 10),
+        help="Positive rank cutoffs for Hit@K and Recall@K (default: 1 3 5 10).",
+    )
+    evaluation_parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Path for the structured JSON evaluation report.",
+    )
+    evaluation_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing evaluation report explicitly.",
+    )
+    evaluation_parser.set_defaults(handler=_run_evaluate_retrieval)
     return parser
 
 
@@ -383,6 +430,58 @@ def _run_retrieve(args: argparse.Namespace) -> int:
         print("   Excerpt:")
         for line in result.excerpt.splitlines() or [""]:
             print(textwrap.indent(line, "     "))
+    return 0
+
+
+def _format_metric(value: float) -> str:
+    return f"{value:.4f}"
+
+
+def _run_evaluate_retrieval(args: argparse.Namespace) -> int:
+    try:
+        corpus = load_evidence_export(args.evidence_directory)
+        evaluation_set = load_evaluation_set(args.evaluation_set)
+        report = evaluate_bm25(
+            corpus,
+            evaluation_set,
+            split=args.split,
+            cutoffs=tuple(args.cutoffs),
+        )
+        protected_paths = {
+            args.evaluation_set.resolve(),
+            (args.evidence_directory / "evidence.jsonl").resolve(),
+            (args.evidence_directory / "manifest.json").resolve(),
+        }
+        if args.output.resolve() in protected_paths:
+            raise EvaluationError(
+                "Evaluation output must be separate from judgments and selected-evidence inputs"
+            )
+        output_path = write_evaluation_report(
+            report,
+            args.output,
+            overwrite=args.overwrite,
+        )
+    except (RetrievalError, EvaluationError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Dataset: {evaluation_set.dataset_id}")
+    print(f"Split: {args.split}")
+    print(f"Questions in split: {report.payload['counts']['questions_in_split']}")
+    print(f"Verified questions evaluated: {report.verified_question_count}")
+    print(
+        f"Provisional questions excluded from official metrics: {report.provisional_question_count}"
+    )
+    aggregate = report.payload["aggregate_metrics"]
+    if aggregate is None:
+        print("Official metrics: unavailable; this split has no verified questions")
+    else:
+        for cutoff in report.payload["cutoffs"]:
+            key = str(cutoff)
+            print(f"Hit@{cutoff}: {_format_metric(aggregate['hit_at_k'][key])}")
+            print(f"Recall@{cutoff}: {_format_metric(aggregate['recall_at_k'][key])}")
+        print(f"MRR: {_format_metric(aggregate['mrr'])}")
+    print(f"Report: {output_path}")
     return 0
 
 
