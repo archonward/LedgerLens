@@ -8,9 +8,10 @@ claims can be traced back to source documents.
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
 > page-level BM25, semantic, chunk-aware semantic, and hybrid RRF retrieval, a validated financial
-> fact representation, plus offline retrieval evaluation. It is not yet a working financial-analysis
-> assistant: automatic financial extraction, calculations, answer generation, and later evaluation
-> stages remain planned. No reports, datasets, or models are included.
+> fact representation, initial deterministic calculations, plus offline retrieval evaluation. It is
+> not yet a working financial-analysis assistant: automatic financial extraction, input selection,
+> answer generation, and later evaluation stages remain planned. No reports, datasets, or models
+> are included.
 
 ## Repository layout
 
@@ -31,6 +32,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [chunk-aware semantic retrieval guide](docs/chunk-semantic-retrieval.md),
 [hybrid retrieval guide](docs/hybrid-retrieval.md),
 [financial fact representation](docs/financial-facts.md),
+[deterministic calculations](docs/calculations.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -190,6 +192,12 @@ uv run ledgerlens hybrid-retrieve "artifacts/evidence/sha256-<hash>" \
 
 The fused result exposes both component ranks and contributions. It does not mix raw BM25 and
 cosine scores or establish evidence correctness. See [docs/hybrid-retrieval.md](docs/hybrid-retrieval.md).
+
+The Python calculation API accepts only verified financial facts paired with the evidence corpus
+that validates them. It currently supports year-over-year growth, profit margins, and compatible
+two-input ratios using a fixed Decimal context. Results retain the formula, complete input fact
+snapshots, units, periods, and source provenance. Calculation input selection and CLI integration
+are not implemented. See [docs/calculations.md](docs/calculations.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

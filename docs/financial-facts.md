@@ -133,5 +133,6 @@ do not assert that bundled report evidence exists.
 - Normalization is represented and validated, but LedgerLens does not yet perform it.
 - Facts are loaded and validated as JSONL; publishing a separate atomic fact artifact and CLI
   commands are not yet implemented.
-- No financial calculations or question answering consume these facts yet.
+- The initial deterministic calculation layer consumes verified facts; automatic input selection
+  and question answering remain unimplemented.
 

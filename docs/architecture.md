@@ -1,8 +1,9 @@
 # Architecture
 
 PDF text ingestion, explicit reviewed-evidence selection, page-level lexical, semantic, and hybrid
-retrieval, and a validated financial-fact representation are implemented as CPU-only foundations.
-Later components described here are **planned and unimplemented**.
+retrieval, a validated financial-fact representation, and initial deterministic calculations are
+implemented as CPU-only foundations. Later components described here are **planned and
+unimplemented**.
 
 ## Pipeline
 
@@ -32,9 +33,12 @@ Later components described here are **planned and unimplemented**.
    ambiguous states. Verification is separate from extraction quality and requires review
    metadata plus resolved critical context. Automatic extraction and table reconstruction are not
    implemented.
-5. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
-   period choices, currency, units, formula, and result must be recorded so the calculation can be
-   reproduced.
+5. **Calculations (implemented foundation):** compute year-over-year growth, profit margins, and
+   compatible two-input ratios using a fixed Decimal context. Every input must be a verified fact
+   that still validates against its selected-evidence corpus. Results retain formulas, complete
+   input fact snapshots, reporting periods, currencies, units, source provenance, and arithmetic
+   settings. Automatic input selection, broader formula systems, and presentation rounding remain
+   planned.
 6. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
    results, attach citations to supported claims, and state when available evidence is insufficient.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
