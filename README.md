@@ -7,7 +7,8 @@ claims can be traced back to source documents.
 
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
-> page-level BM25 retrieval, and offline retrieval evaluation. It is not yet a working
+> page-level BM25, page-level semantic, and chunk-aware semantic retrieval, plus offline retrieval
+> evaluation. It is not yet a working
 > financial-analysis assistant: financial interpretation, calculations, answer generation, and
 > later evaluation stages remain planned. No reports, datasets, or models are included.
 
@@ -26,8 +27,9 @@ docs/                  Architecture and evaluation plans
 ```
 
 See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evidence.md),
-[retrieval guide](docs/retrieval.md), [architecture](docs/architecture.md), and
-[evaluation](docs/evaluation.md) documents.
+[BM25 retrieval guide](docs/retrieval.md), [semantic retrieval guide](docs/semantic-retrieval.md),
+[chunk-aware semantic retrieval guide](docs/chunk-semantic-retrieval.md),
+[architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
 
@@ -145,6 +147,35 @@ uv run ledgerlens evaluate-retrieval "artifacts/evidence/sha256-<hash>" \
 
 Only manually verified questions contribute to Hit@K, Recall@K, and MRR. See
 [docs/evaluation.md](docs/evaluation.md) for the schema, split discipline, and metric definitions.
+
+Semantic retrieval is an optional CPU baseline using a pinned, quantized ONNX embedding model.
+Model download and embedding generation are explicit and write only beneath ignored `artifacts/`
+directories:
+
+```bash
+uv sync --locked --group dev --extra semantic
+uv run ledgerlens embed-evidence "artifacts/evidence/sha256-<hash>"
+uv run ledgerlens semantic-retrieve "artifacts/evidence/sha256-<hash>" \
+  "artifacts/embeddings/sha256-<hash>/baai-bge-small-en-v1-5-c32e6154d1bb" \
+  --query "What caused revenue to increase?" --top-k 5
+```
+
+The embedding cache is hash-bound to selected evidence. Semantic scores are ranking signals, not
+confidence or correctness measures. Long pages are truncated at the model input limit during
+embedding. See [docs/semantic-retrieval.md](docs/semantic-retrieval.md).
+
+Chunk-aware semantic retrieval avoids that page-level truncation by making overlapping, exact-text
+slices within each physical page and aggregating chunk similarities back to page rankings:
+
+```bash
+uv run ledgerlens embed-evidence-chunks "artifacts/evidence/sha256-<hash>" --offline
+uv run ledgerlens chunk-semantic-retrieve "artifacts/evidence/sha256-<hash>" \
+  "artifacts/chunk-embeddings/sha256-<hash>/<model-and-chunk-key>" \
+  --query "What caused revenue to increase?" --top-k 5
+```
+
+Chunks retain exact character and token offsets, but do not restore table structure or validate
+financial meaning. See [docs/chunk-semantic-retrieval.md](docs/chunk-semantic-retrieval.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

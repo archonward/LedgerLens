@@ -1,7 +1,8 @@
 # Retrieval evaluation
 
-LedgerLens implements an offline framework for evaluating page-level BM25 retrieval against
-independently supplied relevance judgments. No NVIDIA benchmark result is included in the
+LedgerLens implements an offline framework for evaluating page-level BM25, page-semantic, or
+chunk-aware semantic retrieval
+against independently supplied relevance judgments. No NVIDIA benchmark result is included in the
 repository, and no benchmark claim should be made until supporting pages have been manually
 verified against the source report.
 
@@ -127,13 +128,45 @@ For each verified question and cutoff `K`:
   positive-score rank. **MRR** is its macro-average over verified questions.
 
 Aggregate Hit@K and Recall@K are also macro-averages, so each verified question has equal weight.
-MRR uses the full positive-score page ranking rather than only the largest requested K. A split
-with no verified questions reports `aggregate_metrics: null`; provisional questions never create
-an accuracy number.
+MRR uses the full available retriever ranking rather than only the largest requested K. For BM25,
+that ranking contains positive-score pages; the semantic retriever ranks every selected page. A
+split with no verified questions reports `aggregate_metrics: null`; provisional questions never
+create an accuracy number.
 
 These measures evaluate page retrieval only. They do not establish extraction accuracy, table
 structure, numerical correctness, citation support, answer quality, or human approval of retrieved
 text.
+
+To evaluate a previously built semantic index, add the retriever and cache arguments without
+changing the question set:
+
+```bash
+uv run ledgerlens evaluate-retrieval "artifacts/evidence/sha256-<hash>" \
+  "configs/evaluation/questions.json" --retriever semantic \
+  --embedding-index "artifacts/embeddings/sha256-<hash>/<model-key>" \
+  --model-cache artifacts/models --split development --k 1 3 5 10 \
+  --output "artifacts/evaluation/development-semantic.json"
+```
+
+Semantic evaluation reports additionally record the model name, pinned revision, backend version,
+input limit, normalization, similarity function, and embedding-index hashes. The model must already
+be present locally; evaluation never downloads it. Choose configuration using development questions
+and run held-out evaluation only after that choice is fixed.
+
+For an existing chunk index, use the same judgments and cutoffs:
+
+```bash
+uv run ledgerlens evaluate-retrieval "artifacts/evidence/sha256-<hash>" \
+  "configs/evaluation/questions.json" --retriever chunk-semantic \
+  --embedding-index "artifacts/chunk-embeddings/sha256-<hash>/<model-and-chunk-key>" \
+  --chunk-aggregation max --model-cache artifacts/models \
+  --split development --k 1 3 5 10 \
+  --output "artifacts/evaluation/development-chunk-semantic.json"
+```
+
+Chunk-aware reports add the chunking configuration, aggregation rule, cache hashes, and exact best
+chunk offsets for each retrieved page. Configuration and aggregation choices belong to development
+experimentation; held-out evaluation should run once after they are frozen.
 
 ## Future evaluation stages
 

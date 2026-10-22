@@ -5,6 +5,8 @@ from ledgerlens.evaluation.retrieval import (
     EvaluationReport,
     EvaluationSet,
     evaluate_bm25,
+    evaluate_chunk_semantic,
+    evaluate_semantic,
     load_evaluation_set,
     write_evaluation_report,
 )
@@ -14,6 +16,8 @@ __all__ = [
     "EvaluationReport",
     "EvaluationSet",
     "evaluate_bm25",
+    "evaluate_chunk_semantic",
+    "evaluate_semantic",
     "load_evaluation_set",
     "write_evaluation_report",
 ]

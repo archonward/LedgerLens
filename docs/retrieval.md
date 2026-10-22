@@ -9,9 +9,9 @@ reviewed recovery text.
 
 BM25 rewards query terms that occur on a page, gives more weight to rarer terms, accounts for term
 frequency, and normalizes for page length. It is deterministic, needs no model download or GPU, and
-provides a useful baseline against which a later embedding retriever can be evaluated. A high score
-means a stronger lexical match within this corpus. It is not a probability, confidence estimate,
-financial correctness assessment, or evidence verification result.
+provides a useful baseline against which the implemented embedding retriever can be evaluated. A
+high score means a stronger lexical match within this corpus. It is not a probability, confidence
+estimate, financial correctness assessment, or evidence verification result.
 
 ## Run a query
 
@@ -81,7 +81,7 @@ labels, columns, signs, periods, currencies, and units. A matched page must stil
 before using its contents, especially when it carries a limitation. Retrieval performs no
 calculation and makes no numerical conclusion.
 
-No benchmark quality claim has been made. The implemented [evaluation framework](evaluation.md)
+No benchmark result is committed to the repository. The implemented [evaluation framework](evaluation.md)
 measures the baseline on separately supplied, manually verified page judgments while excluding
-provisional questions from official metrics. A later embedding baseline can be compared on the
-same held-out split while preserving the selected evidence and provenance contract.
+provisional questions from official metrics. The [semantic baseline](semantic-retrieval.md) can be
+compared on the same held-out split while preserving the selected evidence and provenance contract.

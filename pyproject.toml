@@ -24,6 +24,10 @@ recovery = [
 ocr = [
     "pypdfium2>=5.14.0",
 ]
+semantic = [
+    "fastembed>=0.8,<0.9",
+    "tokenizers>=0.15,<1",
+]
 
 [dependency-groups]
 dev = [

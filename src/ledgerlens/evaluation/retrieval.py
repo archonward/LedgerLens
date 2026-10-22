@@ -7,13 +7,22 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from ledgerlens import __version__
-from ledgerlens.retrieval import BM25Retriever, EvidenceCorpus, SearchResult
+from ledgerlens.retrieval import (
+    BM25Retriever,
+    ChunkEmbeddingIndex,
+    ChunkSemanticRetriever,
+    EmbeddingBackend,
+    EmbeddingIndex,
+    EvidenceCorpus,
+    SearchResult,
+    SemanticRetriever,
+)
 
 EVALUATION_SCHEMA_VERSION = "1.0"
 REPORT_SCHEMA_VERSION = "1.0"
@@ -228,7 +237,7 @@ def _validate_cutoffs(cutoffs: tuple[int, ...]) -> tuple[int, ...]:
 
 
 def _retrieved_page(result: SearchResult) -> dict[str, Any]:
-    return {
+    record = {
         "rank": result.rank,
         "score": result.score,
         "physical_page_number": result.page.physical_page_number,
@@ -237,6 +246,10 @@ def _retrieved_page(result: SearchResult) -> dict[str, Any]:
         "source_sha256": result.page.provenance.get("source_sha256"),
         "known_limitations": list(result.page.known_limitations),
     }
+    retrieval_details = getattr(result, "retrieval_details", None)
+    if retrieval_details is not None:
+        record["chunk_retrieval"] = retrieval_details
+    return record
 
 
 def evaluate_bm25(
@@ -247,6 +260,110 @@ def evaluate_bm25(
     cutoffs: tuple[int, ...] = (1, 3, 5, 10),
 ) -> EvaluationReport:
     """Evaluate BM25 on one split, excluding provisional questions from metrics."""
+    retriever = BM25Retriever(corpus)
+    return _evaluate_retriever(
+        corpus,
+        evaluation_set,
+        split=split,
+        cutoffs=cutoffs,
+        retriever=retriever,
+        retriever_metadata={
+            "name": "page_level_bm25",
+            "k1": retriever.k1,
+            "b": retriever.b,
+            "unit": "selected_physical_page",
+            "tie_breaker": "ascending_physical_page_number",
+        },
+    )
+
+
+def evaluate_semantic(
+    corpus: EvidenceCorpus,
+    index: EmbeddingIndex,
+    backend: EmbeddingBackend,
+    evaluation_set: EvaluationSet,
+    *,
+    split: str,
+    cutoffs: tuple[int, ...] = (1, 3, 5, 10),
+) -> EvaluationReport:
+    """Evaluate the cached page-level semantic retriever on one split."""
+    retriever = SemanticRetriever(corpus, index, backend)
+    return _evaluate_retriever(
+        corpus,
+        evaluation_set,
+        split=split,
+        cutoffs=cutoffs,
+        retriever=retriever,
+        retriever_metadata={
+            "name": "page_level_semantic",
+            "unit": "selected_physical_page",
+            "similarity": index.model.similarity,
+            "normalization": index.model.normalization,
+            "tie_breaker": "ascending_physical_page_number",
+            "model": asdict(index.model),
+            "embedding_index": {
+                "path": str(index.directory),
+                "manifest_sha256": index.manifest_sha256,
+                "vectors_jsonl_sha256": index.vectors_jsonl_sha256,
+            },
+        },
+    )
+
+
+def evaluate_chunk_semantic(
+    corpus: EvidenceCorpus,
+    index: ChunkEmbeddingIndex,
+    backend: EmbeddingBackend,
+    evaluation_set: EvaluationSet,
+    *,
+    split: str,
+    cutoffs: tuple[int, ...] = (1, 3, 5, 10),
+    aggregation: str = "max",
+    aggregation_top_n: int = 2,
+) -> EvaluationReport:
+    """Evaluate chunk similarities aggregated into physical-page rankings."""
+    retriever = ChunkSemanticRetriever(
+        corpus,
+        index,
+        backend,
+        aggregation=aggregation,
+        aggregation_top_n=aggregation_top_n,
+    )
+    return _evaluate_retriever(
+        corpus,
+        evaluation_set,
+        split=split,
+        cutoffs=cutoffs,
+        retriever=retriever,
+        retriever_metadata={
+            "name": "chunk_aware_page_semantic",
+            "unit": "selected_physical_page_chunk_aggregated_to_page",
+            "similarity": index.model.similarity,
+            "normalization": index.model.normalization,
+            "tie_breaker": "ascending_physical_page_number",
+            "aggregation": aggregation,
+            "aggregation_top_n": aggregation_top_n,
+            "model": asdict(index.model),
+            "chunking": asdict(index.chunking),
+            "embedding_index": {
+                "path": str(index.directory),
+                "manifest_sha256": index.manifest_sha256,
+                "chunks_jsonl_sha256": index.chunks_jsonl_sha256,
+            },
+        },
+    )
+
+
+def _evaluate_retriever(
+    corpus: EvidenceCorpus,
+    evaluation_set: EvaluationSet,
+    *,
+    split: str,
+    cutoffs: tuple[int, ...],
+    retriever: Any,
+    retriever_metadata: dict[str, Any],
+) -> EvaluationReport:
+    """Compute common page-retrieval metrics for a configured retriever."""
     if split not in SUPPORTED_SPLITS:
         raise EvaluationError("Evaluation split must be development or held_out")
     cutoffs = _validate_cutoffs(cutoffs)
@@ -265,7 +382,6 @@ def evaluate_bm25(
                     f"evidence pages: {', '.join(str(page) for page in missing)}"
                 )
 
-    retriever = BM25Retriever(corpus)
     per_question: list[dict[str, Any]] = []
     verified_metrics: list[dict[str, Any]] = []
     result_depth = max(cutoffs)
@@ -356,13 +472,7 @@ def evaluate_bm25(
             "evidence_jsonl_sha256": corpus.evidence_jsonl_sha256,
             "manifest_sha256": corpus.manifest_sha256,
         },
-        "retriever": {
-            "name": "page_level_bm25",
-            "k1": retriever.k1,
-            "b": retriever.b,
-            "unit": "selected_physical_page",
-            "tie_breaker": "ascending_physical_page_number",
-        },
+        "retriever": retriever_metadata,
         "cutoffs": list(cutoffs),
         "counts": {
             "questions_in_split": len(selected_questions),
@@ -374,7 +484,8 @@ def evaluate_bm25(
         "metric_notes": {
             "hit_at_k": "One when any verified relevant page appears in the first K results.",
             "recall_at_k": "Fraction of all verified relevant pages appearing in the first K.",
-            "mrr": "Mean reciprocal rank of the first verified relevant page over full ranking.",
+            "mrr": "Mean reciprocal rank of the first verified relevant page over the full "
+            "available retriever ranking.",
         },
     }
     return EvaluationReport(payload=payload)
