@@ -1,7 +1,7 @@
 # Retrieval evaluation
 
-LedgerLens implements an offline framework for evaluating page-level BM25, page-semantic, or
-chunk-aware semantic retrieval
+LedgerLens implements an offline framework for evaluating page-level BM25, page-semantic,
+chunk-aware semantic, or hybrid RRF retrieval
 against independently supplied relevance judgments. No NVIDIA benchmark result is included in the
 repository, and no benchmark claim should be made until supporting pages have been manually
 verified against the source report.
@@ -168,9 +168,25 @@ Chunk-aware reports add the chunking configuration, aggregation rule, cache hash
 chunk offsets for each retrieved page. Configuration and aggregation choices belong to development
 experimentation; held-out evaluation should run once after they are frozen.
 
+Hybrid evaluation reuses a page-level semantic index:
+
+```bash
+uv run ledgerlens evaluate-retrieval "artifacts/evidence/sha256-<hash>" \
+  "configs/evaluation/questions.json" --retriever hybrid \
+  --embedding-index "artifacts/embeddings/sha256-<hash>/<model-key>" \
+  --rrf-k 60 --bm25-weight 1 --semantic-weight 1 \
+  --model-cache artifacts/models --split development --k 1 3 5 10 \
+  --output "artifacts/evaluation/development-hybrid.json"
+```
+
+The report records the RRF constant and weights, unchanged BM25 parameters, semantic model and
+cache hashes, and each result's component ranks, raw scores, and rank contributions. Raw BM25 and
+cosine scores are not combined. Choose fusion settings using development questions. A previously
+examined held-out split is useful for comparison but is no longer a fresh independent test.
+
 ## Future evaluation stages
 
-The same judgment set can compare later embedding or hybrid retrievers if they produce ranked
+The same judgment set can compare later embedding or reranking methods if they produce ranked
 physical pages from the same selected evidence. Future milestones will separately evaluate
 numerical accuracy (including periods, currencies, units, signs, and formulas), citation support,
 missing-information behavior, and latency. Those measures are not implemented here.

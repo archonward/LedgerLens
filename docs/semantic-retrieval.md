@@ -112,4 +112,5 @@ record the model and cache hashes needed for comparison.
 
 This page-level baseline remains unchanged for reproducible comparison. The separately implemented
 [chunk-aware variant](chunk-semantic-retrieval.md) embeds bounded slices and aggregates them back to
-physical pages.
+physical pages. The [hybrid retriever](hybrid-retrieval.md) reuses this page-level cache and fuses
+its ranking with BM25.

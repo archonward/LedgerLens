@@ -34,6 +34,7 @@ def test_help_works_for_both_entry_points(entry_point: list[str]) -> None:
     assert "retrieve" in result.stdout
     assert "embed-evidence" in result.stdout
     assert "semantic-retrieve" in result.stdout
+    assert "hybrid-retrieve" in result.stdout
     assert "embed-evidence-chunks" in result.stdout
     assert "chunk-semantic-retrieve" in result.stdout
     assert "evaluate-retrieval" in result.stdout

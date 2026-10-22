@@ -84,4 +84,5 @@ calculation and makes no numerical conclusion.
 No benchmark result is committed to the repository. The implemented [evaluation framework](evaluation.md)
 measures the baseline on separately supplied, manually verified page judgments while excluding
 provisional questions from official metrics. The [semantic baseline](semantic-retrieval.md) can be
-compared on the same held-out split while preserving the selected evidence and provenance contract.
+compared on the same split while preserving the selected evidence and provenance contract. The
+[hybrid baseline](hybrid-retrieval.md) fuses these two unchanged page rankings.

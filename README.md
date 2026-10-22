@@ -7,7 +7,7 @@ claims can be traced back to source documents.
 
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
-> page-level BM25, page-level semantic, and chunk-aware semantic retrieval, plus offline retrieval
+> page-level BM25, semantic, chunk-aware semantic, and hybrid RRF retrieval, plus offline retrieval
 > evaluation. It is not yet a working
 > financial-analysis assistant: financial interpretation, calculations, answer generation, and
 > later evaluation stages remain planned. No reports, datasets, or models are included.
@@ -29,6 +29,7 @@ docs/                  Architecture and evaluation plans
 See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evidence.md),
 [BM25 retrieval guide](docs/retrieval.md), [semantic retrieval guide](docs/semantic-retrieval.md),
 [chunk-aware semantic retrieval guide](docs/chunk-semantic-retrieval.md),
+[hybrid retrieval guide](docs/hybrid-retrieval.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -176,6 +177,18 @@ uv run ledgerlens chunk-semantic-retrieve "artifacts/evidence/sha256-<hash>" \
 
 Chunks retain exact character and token offsets, but do not restore table structure or validate
 financial meaning. See [docs/chunk-semantic-retrieval.md](docs/chunk-semantic-retrieval.md).
+
+Hybrid retrieval reuses an existing page-embedding cache and combines unchanged BM25 and
+page-semantic ranks with reciprocal rank fusion:
+
+```bash
+uv run ledgerlens hybrid-retrieve "artifacts/evidence/sha256-<hash>" \
+  "artifacts/embeddings/sha256-<hash>/<model-key>" \
+  --query "What caused revenue to increase?" --top-k 5
+```
+
+The fused result exposes both component ranks and contributions. It does not mix raw BM25 and
+cosine scores or establish evidence correctness. See [docs/hybrid-retrieval.md](docs/hybrid-retrieval.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

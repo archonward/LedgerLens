@@ -16,6 +16,7 @@ from ledgerlens.evaluation import (
     EvaluationError,
     evaluate_bm25,
     evaluate_chunk_semantic,
+    evaluate_hybrid,
     evaluate_semantic,
     load_evaluation_set,
     write_evaluation_report,
@@ -26,6 +27,7 @@ from ledgerlens.retrieval import (
     BM25Retriever,
     ChunkingConfig,
     ChunkSemanticRetriever,
+    HybridRetriever,
     RetrievalError,
     SemanticRetriever,
     build_chunk_embedding_index,
@@ -272,6 +274,49 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     semantic_parser.set_defaults(handler=_run_semantic_retrieve)
 
+    hybrid_parser = subparsers.add_parser(
+        "hybrid-retrieve",
+        help="Fuse BM25 and page-semantic rankings with reciprocal rank fusion.",
+    )
+    hybrid_parser.add_argument(
+        "evidence_directory",
+        type=Path,
+        help="Directory containing selected evidence.jsonl and manifest.json.",
+    )
+    hybrid_parser.add_argument(
+        "embedding_index",
+        type=Path,
+        help="Existing page-embedding index produced by embed-evidence.",
+    )
+    hybrid_parser.add_argument("--query", required=True, help="Natural-language search query.")
+    hybrid_parser.add_argument(
+        "--top-k", type=int, default=5, help="Maximum physical pages to return (default: 5)."
+    )
+    hybrid_parser.add_argument(
+        "--rrf-k", type=int, default=60, help="RRF rank constant (default: 60)."
+    )
+    hybrid_parser.add_argument(
+        "--bm25-weight", type=float, default=1.0, help="Positive BM25 rank weight (default: 1)."
+    )
+    hybrid_parser.add_argument(
+        "--semantic-weight",
+        type=float,
+        default=1.0,
+        help="Positive page-semantic rank weight (default: 1).",
+    )
+    hybrid_parser.add_argument(
+        "--model-cache",
+        type=Path,
+        default=Path("artifacts/models"),
+        help="Existing ignored model cache (default: artifacts/models).",
+    )
+    hybrid_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of the human-readable view.",
+    )
+    hybrid_parser.set_defaults(handler=_run_hybrid_retrieve)
+
     chunk_embed_parser = subparsers.add_parser(
         "embed-evidence-chunks",
         help="Build token-aware chunk embeddings within selected physical pages.",
@@ -356,7 +401,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     evaluation_parser = subparsers.add_parser(
         "evaluate-retrieval",
-        help="Evaluate BM25 or semantic retrieval against independent page judgments.",
+        help="Evaluate BM25, semantic, or hybrid retrieval against independent judgments.",
     )
     evaluation_parser.add_argument(
         "evidence_directory",
@@ -370,14 +415,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     evaluation_parser.add_argument(
         "--retriever",
-        choices=("bm25", "semantic", "chunk-semantic"),
+        choices=("bm25", "semantic", "chunk-semantic", "hybrid"),
         default="bm25",
         help="Retrieval method to evaluate (default: bm25).",
     )
     evaluation_parser.add_argument(
         "--embedding-index",
         type=Path,
-        help="Required index directory for semantic or chunk-semantic retrieval.",
+        help="Required page/chunk index for semantic, chunk-semantic, or hybrid retrieval.",
     )
     evaluation_parser.add_argument(
         "--model-cache",
@@ -396,6 +441,24 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
         help="Number of chunk scores averaged by mean_top_n (default: 2).",
+    )
+    evaluation_parser.add_argument(
+        "--rrf-k",
+        type=int,
+        default=60,
+        help="RRF rank constant for hybrid evaluation (default: 60).",
+    )
+    evaluation_parser.add_argument(
+        "--bm25-weight",
+        type=float,
+        default=1.0,
+        help="Positive BM25 rank weight for hybrid evaluation (default: 1).",
+    )
+    evaluation_parser.add_argument(
+        "--semantic-weight",
+        type=float,
+        default=1.0,
+        help="Positive page-semantic rank weight for hybrid evaluation (default: 1).",
     )
     evaluation_parser.add_argument(
         "--split",
@@ -729,6 +792,95 @@ def _run_semantic_retrieve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_hybrid_retrieve(args: argparse.Namespace) -> int:
+    try:
+        corpus = load_evidence_export(args.evidence_directory)
+        index = load_embedding_index(args.embedding_index, corpus)
+        backend = create_fastembed_backend(args.model_cache, allow_download=False)
+        retriever = HybridRetriever(
+            corpus,
+            index,
+            backend,
+            rrf_k=args.rrf_k,
+            bm25_weight=args.bm25_weight,
+            semantic_weight=args.semantic_weight,
+        )
+        results = retriever.search(args.query, top_k=args.top_k)
+    except RetrievalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "query": args.query,
+                    "document_id": corpus.document_id,
+                    "retriever": "hybrid_rrf",
+                    "fusion": {
+                        "method": "weighted_reciprocal_rank_fusion",
+                        "rrf_k": retriever.rrf_k,
+                        "bm25_weight": retriever.bm25_weight,
+                        "semantic_weight": retriever.semantic_weight,
+                        "tie_breaker": "ascending_physical_page_number",
+                    },
+                    "embedding_index": {
+                        "model": index.manifest["model"],
+                        "manifest_sha256": index.manifest_sha256,
+                        "vectors_jsonl_sha256": index.vectors_jsonl_sha256,
+                    },
+                    "result_count": len(results),
+                    "results": [result.to_dict() for result in results],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(f"Document ID: {corpus.document_id}")
+    print(f"Query: {args.query}")
+    print(f"Model: {index.model.model_name} @ {index.model.model_revision}")
+    print(
+        f"Fusion: RRF k={retriever.rrf_k}, BM25 weight={retriever.bm25_weight:g}, "
+        f"semantic weight={retriever.semantic_weight:g}"
+    )
+    print("RRF scores combine ranks; they are not confidence or accuracy measures.")
+    for result in results:
+        page = result.page
+        bm25_rank = result.bm25.rank if result.bm25.rank is not None else "not ranked"
+        semantic_rank = result.semantic.rank if result.semantic.rank is not None else "not ranked"
+        print()
+        print(
+            f"{result.rank}. Physical PDF page {page.physical_page_number} "
+            f"| fused score {result.score:.8f} | {page.method}"
+        )
+        print(
+            f"   BM25: rank {bm25_rank}, raw score {result.bm25.raw_score}, "
+            f"RRF contribution {result.bm25.contribution:.8f}"
+        )
+        print(
+            f"   Page semantic: rank {semantic_rank}, raw score {result.semantic.raw_score}, "
+            f"RRF contribution {result.semantic.contribution:.8f}"
+        )
+        print(f"   Excerpt source: {result.excerpt_source}")
+        print(f"   Selected-text SHA-256: {page.text_sha256}")
+        print(f"   Source SHA-256: {page.provenance.get('source_sha256', 'unavailable')}")
+        if page.review_provenance is not None:
+            print(
+                "   Review provenance: "
+                + json.dumps(page.review_provenance, ensure_ascii=False, sort_keys=True)
+            )
+        warnings = page.warnings
+        print(f"   Warnings: {'; '.join(warnings) if warnings else 'none recorded'}")
+        limitations = "; ".join(page.known_limitations) or "none recorded"
+        print(f"   Limitations: {limitations}")
+        print("   Exact source excerpt:")
+        for line in result.excerpt.splitlines() or [""]:
+            print(textwrap.indent(line, "     "))
+    return 0
+
+
 def _run_embed_evidence_chunks(args: argparse.Namespace) -> int:
     try:
         if args.threads is not None and args.threads < 1:
@@ -855,7 +1007,25 @@ def _run_evaluate_retrieval(args: argparse.Namespace) -> int:
     try:
         corpus = load_evidence_export(args.evidence_directory)
         evaluation_set = load_evaluation_set(args.evaluation_set)
-        if args.retriever == "chunk-semantic":
+        if args.retriever == "hybrid":
+            if args.embedding_index is None:
+                raise EvaluationError(
+                    "--embedding-index is required when --retriever hybrid is selected"
+                )
+            index = load_embedding_index(args.embedding_index, corpus)
+            backend = create_fastembed_backend(args.model_cache, allow_download=False)
+            report = evaluate_hybrid(
+                corpus,
+                index,
+                backend,
+                evaluation_set,
+                split=args.split,
+                cutoffs=tuple(args.cutoffs),
+                rrf_k=args.rrf_k,
+                bm25_weight=args.bm25_weight,
+                semantic_weight=args.semantic_weight,
+            )
+        elif args.retriever == "chunk-semantic":
             if args.embedding_index is None:
                 raise EvaluationError(
                     "--embedding-index is required when --retriever chunk-semantic is selected"
@@ -890,7 +1060,8 @@ def _run_evaluate_retrieval(args: argparse.Namespace) -> int:
         else:
             if args.embedding_index is not None:
                 raise EvaluationError(
-                    "--embedding-index is only valid with --retriever semantic or chunk-semantic"
+                    "--embedding-index is only valid with --retriever semantic, "
+                    "chunk-semantic, or hybrid"
                 )
             report = evaluate_bm25(
                 corpus,

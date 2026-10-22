@@ -24,6 +24,14 @@ from ledgerlens.retrieval.chunk_semantic import (
     default_chunk_index_directory,
     load_chunk_embedding_index,
 )
+from ledgerlens.retrieval.hybrid import (
+    BM25_WEIGHT_DEFAULT,
+    RRF_K_DEFAULT,
+    SEMANTIC_WEIGHT_DEFAULT,
+    FusionComponent,
+    HybridRetriever,
+    HybridSearchResult,
+)
 from ledgerlens.retrieval.semantic import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MODEL_NAME,
@@ -43,6 +51,7 @@ from ledgerlens.retrieval.semantic import (
 
 __all__ = [
     "BM25Retriever",
+    "BM25_WEIGHT_DEFAULT",
     "ChunkEmbeddingIndex",
     "ChunkEmbeddingIndexResult",
     "ChunkSearchResult",
@@ -63,9 +72,14 @@ __all__ = [
     "EvidencePage",
     "EvidenceChunk",
     "FastEmbedBackend",
+    "FusionComponent",
+    "HybridRetriever",
+    "HybridSearchResult",
+    "RRF_K_DEFAULT",
     "RetrievalError",
     "SearchResult",
     "SemanticRetriever",
+    "SEMANTIC_WEIGHT_DEFAULT",
     "build_embedding_index",
     "build_chunk_embedding_index",
     "chunk_page_text",

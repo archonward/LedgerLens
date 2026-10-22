@@ -20,6 +20,7 @@ from ledgerlens.retrieval import (
     EmbeddingBackend,
     EmbeddingIndex,
     EvidenceCorpus,
+    HybridRetriever,
     SearchResult,
     SemanticRetriever,
 )
@@ -248,7 +249,8 @@ def _retrieved_page(result: SearchResult) -> dict[str, Any]:
     }
     retrieval_details = getattr(result, "retrieval_details", None)
     if retrieval_details is not None:
-        record["chunk_retrieval"] = retrieval_details
+        details_key = getattr(result, "retrieval_details_key", "chunk_retrieval")
+        record[details_key] = retrieval_details
     return record
 
 
@@ -305,6 +307,63 @@ def evaluate_semantic(
                 "path": str(index.directory),
                 "manifest_sha256": index.manifest_sha256,
                 "vectors_jsonl_sha256": index.vectors_jsonl_sha256,
+            },
+        },
+    )
+
+
+def evaluate_hybrid(
+    corpus: EvidenceCorpus,
+    index: EmbeddingIndex,
+    backend: EmbeddingBackend,
+    evaluation_set: EvaluationSet,
+    *,
+    split: str,
+    cutoffs: tuple[int, ...] = (1, 3, 5, 10),
+    rrf_k: int = 60,
+    bm25_weight: float = 1.0,
+    semantic_weight: float = 1.0,
+) -> EvaluationReport:
+    """Evaluate weighted RRF over unchanged BM25 and page-semantic rankings."""
+    retriever = HybridRetriever(
+        corpus,
+        index,
+        backend,
+        rrf_k=rrf_k,
+        bm25_weight=bm25_weight,
+        semantic_weight=semantic_weight,
+    )
+    return _evaluate_retriever(
+        corpus,
+        evaluation_set,
+        split=split,
+        cutoffs=cutoffs,
+        retriever=retriever,
+        retriever_metadata={
+            "name": "hybrid_rrf",
+            "unit": "selected_physical_page",
+            "fusion": {
+                "method": "weighted_reciprocal_rank_fusion",
+                "rrf_k": retriever.rrf_k,
+                "bm25_weight": retriever.bm25_weight,
+                "semantic_weight": retriever.semantic_weight,
+                "tie_breaker": "ascending_physical_page_number",
+            },
+            "components": {
+                "bm25": {
+                    "k1": retriever.bm25.k1,
+                    "b": retriever.bm25.b,
+                    "ranking_scope": "positive_lexical_matches",
+                },
+                "page_semantic": {
+                    "model": asdict(index.model),
+                    "ranking_scope": "all_selected_pages",
+                    "embedding_index": {
+                        "path": str(index.directory),
+                        "manifest_sha256": index.manifest_sha256,
+                        "vectors_jsonl_sha256": index.vectors_jsonl_sha256,
+                    },
+                },
             },
         },
     )
