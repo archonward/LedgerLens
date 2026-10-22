@@ -7,10 +7,10 @@ claims can be traced back to source documents.
 
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
-> page-level BM25, semantic, chunk-aware semantic, and hybrid RRF retrieval, plus offline retrieval
-> evaluation. It is not yet a working
-> financial-analysis assistant: financial interpretation, calculations, answer generation, and
-> later evaluation stages remain planned. No reports, datasets, or models are included.
+> page-level BM25, semantic, chunk-aware semantic, and hybrid RRF retrieval, a validated financial
+> fact representation, plus offline retrieval evaluation. It is not yet a working financial-analysis
+> assistant: automatic financial extraction, calculations, answer generation, and later evaluation
+> stages remain planned. No reports, datasets, or models are included.
 
 ## Repository layout
 
@@ -30,6 +30,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [BM25 retrieval guide](docs/retrieval.md), [semantic retrieval guide](docs/semantic-retrieval.md),
 [chunk-aware semantic retrieval guide](docs/chunk-semantic-retrieval.md),
 [hybrid retrieval guide](docs/hybrid-retrieval.md),
+[financial fact representation](docs/financial-facts.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup

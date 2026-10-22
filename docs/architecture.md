@@ -1,8 +1,8 @@
 # Architecture
 
-PDF text ingestion, explicit reviewed-evidence selection, and page-level lexical, semantic, and
-hybrid retrieval are implemented as CPU-only foundations. Later components described here are
-**planned and unimplemented**.
+PDF text ingestion, explicit reviewed-evidence selection, page-level lexical, semantic, and hybrid
+retrieval, and a validated financial-fact representation are implemented as CPU-only foundations.
+Later components described here are **planned and unimplemented**.
 
 ## Pipeline
 
@@ -26,12 +26,18 @@ hybrid retrieval are implemented as CPU-only foundations. Later components descr
    cache. All retain selected-text and source hashes, extraction
    method, review provenance, screening warnings, and limitations. Cross-page passage merging,
    learned fusion, reranking, and persistent vector databases remain planned.
-4. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
+4. **Financial evidence representation (implemented foundation):** bind a reported value and its
+   normalized decimal form to an exact selected-evidence excerpt and physical PDF page. Reporting
+   period, currency, units/scale, and table-column association carry explicit known, missing, or
+   ambiguous states. Verification is separate from extraction quality and requires review
+   metadata plus resolved critical context. Automatic extraction and table reconstruction are not
+   implemented.
+5. **Calculations (planned):** perform arithmetic through deterministic, tested functions. Inputs,
    period choices, currency, units, formula, and result must be recorded so the calculation can be
    reproduced.
-5. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
+6. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
    results, attach citations to supported claims, and state when available evidence is insufficient.
-6. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
+7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.
    Hit@K, Recall@K, and MRR are implemented; numerical, citation, abstention, generation, and
