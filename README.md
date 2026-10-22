@@ -33,6 +33,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [hybrid retrieval guide](docs/hybrid-retrieval.md),
 [financial fact representation](docs/financial-facts.md),
 [deterministic calculations](docs/calculations.md),
+[NVIDIA FY2026 reviewed evidence demonstration](docs/real-financial-evidence.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -198,6 +199,12 @@ that validates them. It currently supports year-over-year growth, profit margins
 two-input ratios using a fixed Decimal context. Results retain the formula, complete input fact
 snapshots, units, periods, and source provenance. Calculation input selection and CLI integration
 are not implemented. See [docs/calculations.md](docs/calculations.md).
+
+An offline NVIDIA FY2026 demonstration validates four locally reviewed report facts against the
+unchanged selected-evidence export, then reproduces revenue growth and net profit margins. The
+report, fact records, review record, and results remain Git-ignored. The review was performed by
+Codex and is explicitly not described as independent human verification. See
+[docs/real-financial-evidence.md](docs/real-financial-evidence.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

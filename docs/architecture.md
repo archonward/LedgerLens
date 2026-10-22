@@ -39,6 +39,9 @@ unimplemented**.
    input fact snapshots, reporting periods, currencies, units, source provenance, and arithmetic
    settings. Automatic input selection, broader formula systems, and presentation rounding remain
    planned.
+   A narrow NVIDIA FY2026 integration demonstrates this boundary with four visually reviewed,
+   report-backed facts and three reproducible calculations. Its source-derived artifacts remain
+   Git-ignored, and its Codex-assisted review is not independent human verification.
 6. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
    results, attach citations to supported claims, and state when available evidence is insufficient.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware

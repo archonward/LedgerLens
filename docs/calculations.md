@@ -105,3 +105,6 @@ ratio = financial_ratio(
   significant-figure policies are not implemented.
 - Results are report-derived calculations, not report statements or model conclusions.
 
+See the [NVIDIA FY2026 reviewed evidence demonstration](real-financial-evidence.md) for an offline,
+report-backed use of this API.
+

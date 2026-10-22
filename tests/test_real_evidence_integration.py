@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+DOCUMENT_ID = "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c"
+SOURCE_SHA256 = DOCUMENT_ID.removeprefix("sha256-")
+SOURCE_PDF = Path("data/raw/nvidia-2026-annual-report.pdf")
+EVIDENCE_DIRECTORY = Path("artifacts/evidence") / DOCUMENT_ID
+FACTS_DIRECTORY = Path("artifacts/financial-facts") / DOCUMENT_ID
+SCRIPT = Path("scripts/demonstrate_nvidia_fy2026.py")
+
+
+def _require_local_artifacts() -> None:
+    required = (
+        SOURCE_PDF,
+        EVIDENCE_DIRECTORY / "evidence.jsonl",
+        EVIDENCE_DIRECTORY / "manifest.json",
+        FACTS_DIRECTORY / "facts.jsonl",
+        FACTS_DIRECTORY / "review.json",
+    )
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        pytest.skip("ignored NVIDIA review artifacts are unavailable: " + ", ".join(missing))
+
+
+def _run_demo(*extra: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--source-pdf",
+            str(SOURCE_PDF),
+            "--evidence-directory",
+            str(EVIDENCE_DIRECTORY),
+            "--facts",
+            str(FACTS_DIRECTORY / "facts.jsonl"),
+            "--review-record",
+            str(FACTS_DIRECTORY / "review.json"),
+            *extra,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_reviewed_nvidia_facts_reproduce_expected_calculations() -> None:
+    _require_local_artifacts()
+
+    completed = _run_demo()
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["source"]["document_id"] == DOCUMENT_ID
+    assert payload["source"]["source_sha256"] == SOURCE_SHA256
+    assert payload["review"] == {
+        "review_record_sha256": "79ace3d1e3282991aa11d2989830cfafc5e1408db2f513821f49ee32c0cc99e5",
+        "reviewer_identity": "OpenAI Codex automated coding agent",
+        "method": (
+            "Codex-assisted visual inspection of original PDF renderings, followed by exact "
+            "comparison with the selected page-139 evidence text; no independent human review"
+        ),
+        "independent_human_verification_claimed": False,
+        "physical_pages_reviewed": [22, 69, 139, 145],
+    }
+
+    facts = {fact["fact_id"]: fact for fact in payload["facts"]}
+    assert {fact_id: fact["reported_value"] for fact_id, fact in facts.items()} == {
+        "nvidia-fy2026-revenue": "$ 215,938",
+        "nvidia-fy2025-revenue": "$ 130,497",
+        "nvidia-fy2026-net-income": "$ 120,067",
+        "nvidia-fy2025-net-income": "$ 72,880",
+    }
+    for fact in facts.values():
+        assert fact["verification"]["status"] == "verified"
+        assert fact["verification"]["reviewed_by"] == "OpenAI Codex automated coding agent"
+        assert "not independent human verification" in fact["verification"]["method"]
+        assert fact["currency"] == {"status": "known", "code": "USD", "note": None}
+        assert fact["units"]["scale"] == "1000000"
+        assert fact["evidence"]["physical_page_number"] == 139
+        assert fact["evidence"]["source_sha256"] == SOURCE_SHA256
+
+    calculations = payload["calculations"]
+    assert calculations["revenue_growth_fy2026_vs_fy2025"]["computed_value"] == (
+        "65.47353579009479145114447075411695"
+    )
+    assert calculations["net_profit_margin_fy2026"]["computed_value"] == (
+        "55.60253406070260908223656790375015"
+    )
+    assert calculations["net_profit_margin_fy2025"]["computed_value"] == (
+        "55.84802715771243783381993455788256"
+    )
+    for calculation in calculations.values():
+        assert calculation["calculation_id"].startswith("sha256-")
+        assert len(calculation["inputs"]) == 2
+        assert all("evidence" in item["fact"] for item in calculation["inputs"])
+
+
+def test_demonstration_rejects_a_changed_review_record(tmp_path: Path) -> None:
+    _require_local_artifacts()
+    review = json.loads((FACTS_DIRECTORY / "review.json").read_text(encoding="utf-8"))
+    review["review"]["method"] += " Changed after fact creation."
+    changed_review = tmp_path / "changed-review.json"
+    changed_review.write_text(json.dumps(review), encoding="utf-8")
+
+    completed = _run_demo("--review-record", str(changed_review))
+
+    assert completed.returncode == 2
+    assert "not bound to the supplied review record" in completed.stderr

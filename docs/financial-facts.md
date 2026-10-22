@@ -51,6 +51,12 @@ The other fact states are:
 - `ambiguous`: review found a material unresolved interpretation; and
 - `unverified`: the record has not received the review needed to claim correctness.
 
+`reviewed_by` identifies the actual reviewer; it does not imply that the reviewer is human or
+independent. Automated-agent review must say so explicitly in the reviewer identity, method, and
+note. Where that distinction matters, keep a separate review record with a structured
+`independent_human_verification_claimed` field and bind its hash into the fact metadata. See the
+[NVIDIA FY2026 reviewed evidence demonstration](real-financial-evidence.md).
+
 ## Evidence binding
 
 Use `SupportingEvidence.from_evidence(corpus, page, supporting_text)` to require that supporting
