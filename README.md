@@ -214,6 +214,12 @@ configurable local open-model backend to a checked qualitative sentence. Offline
 backend; LedgerLens does not download or require a model or GPU. See
 [docs/answer-generation.md](docs/answer-generation.md).
 
+An optional standard-library Ollama adapter supports only an already-installed local
+`qwen3:4b-instruct` tag and never downloads or substitutes a model. Its real-model NVIDIA smoke
+test is disabled unless `LEDGERLENS_RUN_OLLAMA_SMOKE=1` is explicitly set. Model identity and
+digest, inference settings, response latency, and strict grounding outcome are retained in answer
+provenance.
+
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,
 or preserve table structure reliably.

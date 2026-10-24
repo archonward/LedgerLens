@@ -68,6 +68,32 @@ LedgerLens does not install, download, or initialize a model. Pinning a model re
 model-file hash remains the caller's responsibility. Offline tests use mock backends and never
 execute a model, inspect credentials, use a GPU, or access the network.
 
+### Optional Ollama backend
+
+`OllamaBackend` connects the same interface to an Ollama server on the local loopback interface.
+It is intentionally fixed to the exact `qwen3:4b-instruct` tag requested for this prototype:
+
+```python
+from ledgerlens.generation import AnswerGenerator, InferenceConfig
+from ledgerlens.generation.ollama import OllamaBackend
+
+backend = OllamaBackend()  # http://127.0.0.1:11434
+generator = AnswerGenerator(
+    backend,
+    inference_config=InferenceConfig(max_new_tokens=96, temperature=0.0),
+)
+```
+
+Before every generation, the backend reads `/api/tags` and requires that exact tag to be installed.
+It records the inventory digest as the model revision. If the tag is absent, it fails without
+calling generation; there is no pull or download code and no fallback model. Only an
+unauthenticated `http://localhost`, `http://127.0.0.1`, or `http://[::1]` origin is accepted.
+
+Generation uses non-streaming `/api/generate`, disables model thinking output, and maps
+`InferenceConfig.max_new_tokens` and `temperature` to Ollama's `num_predict` and `temperature`
+options. Ollama installation, server startup, and installation of `qwen3:4b-instruct` remain
+explicit user responsibilities. LedgerLens will not perform them.
+
 With a validated `corpus` and indexed `facts`, the revenue-growth call is explicit:
 
 ```python
@@ -103,7 +129,15 @@ autonomous selection. A successful `GeneratedAnswer` has three visibly separate 
 The structured citations retain source, selected-text, evidence-export, and manifest hashes;
 supporting text; warnings; limitations; and review provenance. Generation provenance records the
 backend, model, revision, inference settings, grounding-policy version, prompt hash, and raw model
-output hash. Raw model output is not promoted into a financial value.
+output hash. Schema version `1.1` also records client-observed backend response latency in
+milliseconds and an explanation-validation outcome:
+
+- `passed`: model output passed the unchanged grounding checks and appears in the answer;
+- `failed`: model output was received but failed grounding, so LedgerLens abstained; or
+- `not_run`: validation did not run, such as input rejection or inference failure.
+
+The latency covers the complete backend call. For Ollama this includes the local model-inventory
+check and generation request. Raw model output is not promoted into a financial value.
 
 ## Reviewed NVIDIA demonstration
 
@@ -125,6 +159,24 @@ It skips if the Git-ignored report artifacts are absent. The financial review re
 Codex-assisted visual review and is **not independent human verification**. The mock backend proves
 the validation and rendering workflow, not the quality of any particular open model.
 
+The real Ollama smoke test is separately opt-in. It exercises both NVIDIA requests and prints a
+small record for each containing model identity and digest, inference configuration, latency,
+answer status, and `passed` or `failed` explanation validation. A grounding failure is recorded as
+an expected abstention; the test does not relax the policy to make model text pass.
+
+```powershell
+$env:LEDGERLENS_RUN_OLLAMA_SMOKE = "1"
+uv run pytest -s tests/test_ollama_smoke.py
+```
+
+```bash
+LEDGERLENS_RUN_OLLAMA_SMOKE=1 uv run pytest -s tests/test_ollama_smoke.py
+```
+
+Without that exact environment variable, the test skips before contacting Ollama. It also skips
+when the Git-ignored NVIDIA evidence or fact artifacts are unavailable. Once opted in with those
+artifacts present, an unavailable server or missing exact model is a test failure, not a fallback.
+
 ## Current limitations
 
 - Only explicitly selected revenue-growth and net-profit-margin requests are supported.
@@ -137,5 +189,5 @@ the validation and rendering workflow, not the quality of any particular open mo
   undefined.
 - One fact still binds one physical page. Multi-page context referenced by review metadata is not
   converted into additional answer citations.
-- No concrete model runtime is a project dependency. CPU-local inference is opt-in through the
-  backend protocol and must be configured and tested by the caller.
+- No model runtime is a project dependency. The optional Ollama transport uses Python's standard
+  library, while Ollama and `qwen3:4b-instruct` must already be installed locally.

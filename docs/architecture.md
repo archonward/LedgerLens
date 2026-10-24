@@ -48,8 +48,10 @@ described here remain **planned and unimplemented**.
    Deterministic code renders all financial values, formulas, and physical-page citations. Model
    text containing numbers, citations, unsupported vocabulary, or the wrong result direction is
    rejected, and invalid, stale, mismatched, or unsupported inputs abstain. Runtime-specific model
-   loading, broader question support, semantic entailment, automatic input selection, and a
-   conversational interface remain planned.
+   loading for other runtimes, broader question support, semantic entailment, automatic input
+   selection, and a conversational interface remain planned. An optional loopback-only Ollama
+   adapter supports the exact locally installed `qwen3:4b-instruct` tag without downloading models;
+   its model digest, inference settings, response latency, and grounding outcome are recorded.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.

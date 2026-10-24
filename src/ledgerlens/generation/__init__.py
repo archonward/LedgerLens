@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -24,7 +25,7 @@ from ledgerlens.calculations import (
 from ledgerlens.financial_facts import FinancialFact, VerificationStatus
 from ledgerlens.retrieval.bm25 import EvidenceCorpus
 
-GENERATION_SCHEMA_VERSION = "1.0"
+GENERATION_SCHEMA_VERSION = "1.1"
 GROUNDING_POLICY_VERSION = "1.0"
 _WORDS = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _FORBIDDEN = frozenset("0123456789$%€£¥[]{}<>")
@@ -46,6 +47,14 @@ class AnswerStatus(StrEnum):
 
     ANSWERED = "answered"
     ABSTAINED = "abstained"
+
+
+class ExplanationValidationStatus(StrEnum):
+    """Outcome of applying LedgerLens grounding checks to model output."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    NOT_RUN = "not_run"
 
 
 @dataclass(frozen=True)
@@ -271,6 +280,8 @@ class GenerationProvenance:
     inference: InferenceConfig
     prompt_sha256: str | None
     model_output_sha256: str | None
+    response_latency_ms: str | None = None
+    explanation_validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -279,6 +290,8 @@ class GenerationProvenance:
             "grounding_policy_version": GROUNDING_POLICY_VERSION,
             "prompt_sha256": self.prompt_sha256,
             "model_output_sha256": self.model_output_sha256,
+            "response_latency_ms": self.response_latency_ms,
+            "explanation_validation": self.explanation_validation.value,
         }
 
 
@@ -330,14 +343,28 @@ class AnswerGenerator:
         conclusion, allowed, required = _grounded_conclusion(request)
         prompt = _build_prompt(request, conclusion, allowed)
         prompt_hash = _sha256(prompt)
+        started_ns = time.perf_counter_ns()
         try:
             raw_output = self._backend.generate(prompt, self._config)
         except Exception:  # A local runtime failure must not leak financial output.
-            return self._abstain(request, "model_inference_failed", prompt_hash)
+            return self._abstain(
+                request,
+                "model_inference_failed",
+                prompt_hash,
+                latency_ms=_elapsed_ms(started_ns),
+            )
+        latency_ms = _elapsed_ms(started_ns)
         output_hash = _sha256(raw_output) if isinstance(raw_output, str) else None
         explanation = _checked_explanation(raw_output, allowed, required)
         if explanation is None:
-            return self._abstain(request, "model_output_failed_grounding", prompt_hash, output_hash)
+            return self._abstain(
+                request,
+                "model_output_failed_grounding",
+                prompt_hash,
+                output_hash,
+                latency_ms,
+                ExplanationValidationStatus.FAILED,
+            )
 
         citations = _unique_citations(request.facts)
         reported = tuple(_reported_value(fact) for fact in request.facts)
@@ -351,7 +378,12 @@ class AnswerGenerator:
             computed_value=computed,
             model_generated_explanation=explanation,
             citations=citations,
-            provenance=self._provenance(prompt_hash, output_hash),
+            provenance=self._provenance(
+                prompt_hash,
+                output_hash,
+                latency_ms,
+                ExplanationValidationStatus.PASSED,
+            ),
         )
 
     def _validate_request(self, request: AnswerRequest) -> str | None:
@@ -412,8 +444,21 @@ class AnswerGenerator:
             FactOperand(roles["revenue"], request.corpus),
         )
 
-    def _provenance(self, prompt: str | None, output: str | None) -> GenerationProvenance:
-        return GenerationProvenance(self._backend.identity, self._config, prompt, output)
+    def _provenance(
+        self,
+        prompt: str | None,
+        output: str | None,
+        latency_ms: str | None = None,
+        validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN,
+    ) -> GenerationProvenance:
+        return GenerationProvenance(
+            self._backend.identity,
+            self._config,
+            prompt,
+            output,
+            latency_ms,
+            validation,
+        )
 
     def _abstain(
         self,
@@ -421,6 +466,8 @@ class AnswerGenerator:
         reason: str,
         prompt: str | None = None,
         output: str | None = None,
+        latency_ms: str | None = None,
+        validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN,
     ) -> GeneratedAnswer:
         return GeneratedAnswer(
             AnswerStatus.ABSTAINED,
@@ -431,13 +478,17 @@ class AnswerGenerator:
             None,
             None,
             (),
-            self._provenance(prompt, output),
+            self._provenance(prompt, output, latency_ms, validation),
             reason,
         )
 
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _elapsed_ms(started_ns: int) -> str:
+    return str((time.perf_counter_ns() - started_ns) // 1_000_000)
 
 
 def _question_supports_growth(question: str) -> bool:
@@ -582,6 +633,7 @@ __all__ = [
     "CallableLocalModelBackend",
     "ComputedValue",
     "EvidenceCitation",
+    "ExplanationValidationStatus",
     "GeneratedAnswer",
     "GenerationProvenance",
     "InferenceConfig",

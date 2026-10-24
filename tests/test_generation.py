@@ -24,6 +24,8 @@ from ledgerlens.generation import (
     AnswerRequest,
     AnswerStatus,
     AnswerTask,
+    ExplanationValidationStatus,
+    GenerationProvenance,
     InferenceConfig,
     ModelIdentity,
 )
@@ -169,6 +171,8 @@ def test_growth_answer_separates_reported_computed_and_model_content() -> None:
     ]
     assert payload["provenance"]["prompt_sha256"]  # type: ignore[index]
     assert payload["provenance"]["model_output_sha256"]  # type: ignore[index]
+    assert answer.provenance.response_latency_ms is not None
+    assert answer.provenance.explanation_validation is ExplanationValidationStatus.PASSED
     assert "$150" in backend.prompt and "50.0 percent" in backend.prompt
 
 
@@ -208,6 +212,8 @@ def test_numeric_or_causal_model_claim_causes_abstention() -> None:
         assert answer.reported_values == ()
         assert answer.computed_value is None
         assert answer.citations == ()
+        assert answer.provenance.response_latency_ms is not None
+        assert answer.provenance.explanation_validation is ExplanationValidationStatus.FAILED
 
 
 def test_unsupported_question_abstains_before_model_call() -> None:
@@ -259,6 +265,23 @@ def test_unverified_fact_and_backend_failure_abstain() -> None:
     )
 
     assert unverified_answer.abstention_reason == "financial_facts_are_not_verified"
+    assert (
+        unverified_answer.provenance.explanation_validation is ExplanationValidationStatus.NOT_RUN
+    )
     assert failed_answer.abstention_reason == "model_inference_failed"
     assert failed_answer.provenance.prompt_sha256 is not None
     assert failed_answer.provenance.model_output_sha256 is None
+    assert failed_answer.provenance.response_latency_ms is not None
+    assert failed_answer.provenance.explanation_validation is ExplanationValidationStatus.NOT_RUN
+
+
+def test_existing_generation_provenance_constructor_remains_compatible() -> None:
+    provenance = GenerationProvenance(
+        ModelIdentity("mock-local", "controlled-open-model"),
+        InferenceConfig(),
+        None,
+        None,
+    )
+
+    assert provenance.response_latency_ms is None
+    assert provenance.explanation_validation is ExplanationValidationStatus.NOT_RUN
