@@ -1,9 +1,9 @@
 # Architecture
 
 PDF text ingestion, explicit reviewed-evidence selection, page-level lexical, semantic, and hybrid
-retrieval, a validated financial-fact representation, and initial deterministic calculations are
-implemented as CPU-only foundations. Later components described here are **planned and
-unimplemented**.
+retrieval, a validated financial-fact representation, deterministic calculations, and narrow
+evidence-grounded answer generation are implemented as CPU-only foundations. Later components
+described here remain **planned and unimplemented**.
 
 ## Pipeline
 
@@ -42,8 +42,14 @@ unimplemented**.
    A narrow NVIDIA FY2026 integration demonstrates this boundary with four visually reviewed,
    report-backed facts and three reproducible calculations. Its source-derived artifacts remain
    Git-ignored, and its Codex-assisted review is not independent human verification.
-6. **Generation (planned):** compose a direct answer using retrieved evidence and calculated
-   results, attach citations to supported claims, and state when available evidence is insufficient.
+6. **Generation (implemented narrow foundation):** accept an explicitly selected revenue-growth or
+   net-profit-margin task, revalidate and recompute its supplied facts and result, then ask a
+   configurable local-model backend for a tightly constrained qualitative explanation.
+   Deterministic code renders all financial values, formulas, and physical-page citations. Model
+   text containing numbers, citations, unsupported vocabulary, or the wrong result direction is
+   rejected, and invalid, stale, mismatched, or unsupported inputs abstain. Runtime-specific model
+   loading, broader question support, semantic entailment, automatic input selection, and a
+   conversational interface remain planned.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.

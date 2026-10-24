@@ -7,6 +7,18 @@ from pathlib import Path
 
 import pytest
 
+from ledgerlens.calculations import FactOperand, profit_margin, year_over_year_growth
+from ledgerlens.financial_facts import load_financial_facts
+from ledgerlens.generation import (
+    AnswerGenerator,
+    AnswerRequest,
+    AnswerStatus,
+    AnswerTask,
+    CallableLocalModelBackend,
+    ModelIdentity,
+)
+from ledgerlens.retrieval.bm25 import load_evidence_export
+
 DOCUMENT_ID = "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c"
 SOURCE_SHA256 = DOCUMENT_ID.removeprefix("sha256-")
 SOURCE_PDF = Path("data/raw/nvidia-2026-annual-report.pdf")
@@ -112,3 +124,65 @@ def test_demonstration_rejects_a_changed_review_record(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "not bound to the supplied review record" in completed.stderr
+
+
+def test_reviewed_nvidia_facts_ground_revenue_growth_and_margin_answers() -> None:
+    _require_local_artifacts()
+    completed = _run_demo()
+    assert completed.returncode == 0, completed.stderr
+    corpus = load_evidence_export(EVIDENCE_DIRECTORY)
+    facts = {
+        fact.fact_id: fact for fact in load_financial_facts(FACTS_DIRECTORY / "facts.jsonl", corpus)
+    }
+    revenue_current = facts["nvidia-fy2026-revenue"]
+    revenue_prior = facts["nvidia-fy2025-revenue"]
+    net_income = facts["nvidia-fy2026-net-income"]
+    growth = year_over_year_growth(
+        FactOperand(revenue_current, corpus), FactOperand(revenue_prior, corpus)
+    )
+    margin = profit_margin(FactOperand(net_income, corpus), FactOperand(revenue_current, corpus))
+    identity = ModelIdentity("mock-local", "controlled-open-model", "integration-test")
+
+    growth_answer = AnswerGenerator(
+        CallableLocalModelBackend(
+            identity,
+            lambda _prompt, _config: "Revenue increased from the prior fiscal year.",
+        )
+    ).generate(
+        AnswerRequest(
+            "How much did NVIDIA revenue grow in FY2026?",
+            AnswerTask.REVENUE_GROWTH,
+            (revenue_current, revenue_prior),
+            growth,
+            corpus,
+        )
+    )
+    margin_answer = AnswerGenerator(
+        CallableLocalModelBackend(
+            identity,
+            lambda _prompt, _config: (
+                "Net income represented a portion of revenue for the fiscal year."
+            ),
+        )
+    ).generate(
+        AnswerRequest(
+            "What was NVIDIA's FY2026 net profit margin?",
+            AnswerTask.NET_PROFIT_MARGIN,
+            (net_income, revenue_current),
+            margin,
+            corpus,
+        )
+    )
+
+    assert growth_answer.status is AnswerStatus.ANSWERED
+    assert growth_answer.computed_value is not None
+    assert growth_answer.computed_value.computed_value == ("65.47353579009479145114447075411695")
+    assert margin_answer.status is AnswerStatus.ANSWERED
+    assert margin_answer.computed_value is not None
+    assert margin_answer.computed_value.computed_value == ("55.60253406070260908223656790375015")
+    for answer in (growth_answer, margin_answer):
+        assert {citation.marker for citation in answer.citations} == {"[PDF p. 139]"}
+        assert all(citation.source_sha256 == SOURCE_SHA256 for citation in answer.citations)
+        assert "Source-reported values:" in answer.answer_text
+        assert "Computed result:" in answer.answer_text
+        assert "Model-generated explanation:" in answer.answer_text

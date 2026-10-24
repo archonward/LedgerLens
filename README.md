@@ -8,10 +8,10 @@ claims can be traced back to source documents.
 > [!IMPORTANT]
 > This repository implements CPU-only local PDF ingestion, reviewed evidence selection, and
 > page-level BM25, semantic, chunk-aware semantic, and hybrid RRF retrieval, a validated financial
-> fact representation, initial deterministic calculations, plus offline retrieval evaluation. It is
-> not yet a working financial-analysis assistant: automatic financial extraction, input selection,
-> answer generation, and later evaluation stages remain planned. No reports, datasets, or models
-> are included.
+> fact representation, deterministic calculations, a narrow evidence-grounded answer-generation
+> API, plus offline retrieval evaluation. It is not yet a complete financial-analysis assistant:
+> automatic financial extraction, input selection, general question answering, and later evaluation
+> stages remain planned. No reports, datasets, or models are included.
 
 ## Repository layout
 
@@ -34,6 +34,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [financial fact representation](docs/financial-facts.md),
 [deterministic calculations](docs/calculations.md),
 [NVIDIA FY2026 reviewed evidence demonstration](docs/real-financial-evidence.md),
+[evidence-grounded answer generation](docs/answer-generation.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -205,6 +206,13 @@ unchanged selected-evidence export, then reproduces revenue growth and net profi
 report, fact records, review record, and results remain Git-ignored. The review was performed by
 Codex and is explicitly not described as independent human verification. See
 [docs/real-financial-evidence.md](docs/real-financial-evidence.md).
+
+The Python answer-generation API accepts one explicitly selected revenue-growth or net-profit-margin
+calculation and the exact verified facts behind it. It revalidates the evidence, reproduces the
+calculation, renders every number and physical-page citation deterministically, and limits a
+configurable local open-model backend to a checked qualitative sentence. Offline tests use a mock
+backend; LedgerLens does not download or require a model or GPU. See
+[docs/answer-generation.md](docs/answer-generation.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,
