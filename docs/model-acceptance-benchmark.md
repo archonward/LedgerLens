@@ -63,16 +63,39 @@ contacting the model and publishes both files atomically only after all runs com
 - aggregate acceptance, grounding-rejection, inference-failure, negative-abstention, harness, and
   latency statistics.
 
+Rejected responses also carry deterministic grounding diagnostics without raw response text. The
+possible categories are `non_string_output`, `empty_output`, `output_too_long`,
+`multiline_output`, `forbidden_character`, `no_lexical_words`, `disallowed_vocabulary`,
+`missing_required_term_group`, and `multiple_sentences`. Diagnostics include sorted disallowed
+words, missing required word groups, forbidden characters, normalized character count, and sentence
+terminal count. These fields explain rejection while retaining the original validator decision.
+
 Raw model output is intentionally not copied into the artifact. Its hash makes repeated outputs
 comparable without promoting rejected text into an answer or retaining potentially unsuitable
 generated prose.
+
+For local debugging only, raw rejected responses can be written to a separate explicitly named
+file:
+
+```powershell
+uv run python scripts/benchmark_ollama_generation.py --run-live `
+  --output-directory artifacts/evaluation/ollama-generation-diagnostic `
+  --debug-rejected-output artifacts/debug/ollama-rejected-output.json
+```
+
+The debug path must be beneath Git-ignored `artifacts/`. It is protected against overwrite unless
+`--overwrite` is supplied, carries a do-not-publish warning, and is never embedded in
+`benchmark.json` or `report.md`. Omitting `--debug-rejected-output` retains no raw model response.
 
 ## Reading the report correctly
 
 The generated `report.md` separates four ideas:
 
-1. **Test-harness correctness** means positive cases reached inference and negative cases produced
-   their exact expected structured abstentions without invoking the model.
+1. **Test-harness correctness** means each positive case produced a hashed model response and then
+   reached one of two internally consistent validation states: answered/passed or
+   grounded-abstention/failed. Inference failures and contradictory states fail the harness check.
+   Negative cases must produce their exact expected structured abstentions without invoking the
+   model.
 2. **Model acceptance rate** is accepted positive outputs divided by positive outputs that reached
    LedgerLens explanation validation. Inference failures are reported separately and excluded.
 3. **Semantic correctness remains limited.** Passing the current strict lexical validator is not

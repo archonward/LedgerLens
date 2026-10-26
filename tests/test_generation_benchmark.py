@@ -13,8 +13,11 @@ from ledgerlens.generation import (
     ExplanationValidationStatus,
     GeneratedAnswer,
     GenerationProvenance,
+    GroundingDiagnostic,
+    GroundingRejectionCode,
     InferenceConfig,
     ModelIdentity,
+    RejectedModelOutput,
 )
 from ledgerlens.generation.benchmark import (
     AcceptanceCase,
@@ -23,6 +26,7 @@ from ledgerlens.generation.benchmark import (
     render_benchmark_report,
     run_acceptance_benchmark,
     write_benchmark_artifacts,
+    write_rejected_output_debug_file,
 )
 
 SCRIPT = "scripts/benchmark_ollama_generation.py"
@@ -71,6 +75,15 @@ def _answer(
     prompt_hash: str | None = "prompt-hash",
     output_hash: str | None = "output-hash",
 ) -> GeneratedAnswer:
+    diagnostic = None
+    if validation is ExplanationValidationStatus.PASSED:
+        diagnostic = GroundingDiagnostic(True, ())
+    elif validation is ExplanationValidationStatus.FAILED:
+        diagnostic = GroundingDiagnostic(
+            False,
+            (GroundingRejectionCode.DISALLOWED_VOCABULARY,),
+            disallowed_words=("unsupported",),
+        )
     return GeneratedAnswer(
         status=status,
         question="question",
@@ -91,6 +104,7 @@ def _answer(
             output_hash,
             latency,
             validation,
+            diagnostic,
         ),
         abstention_reason=reason,
     )
@@ -143,7 +157,7 @@ def test_benchmark_separates_acceptance_rejection_and_structured_abstention() ->
         created_at_utc="2026-10-26T00:00:00Z",
     )
 
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert payload["configuration_id"].startswith("sha256-")  # type: ignore[union-attr]
     summary = payload["summary"]
     assert summary == {
@@ -155,6 +169,7 @@ def test_benchmark_separates_acceptance_rejection_and_structured_abstention() ->
         "accepted_positive_runs": 1,
         "grounding_rejected_positive_runs": 1,
         "inference_failed_positive_runs": 0,
+        "grounding_rejection_categories": {"disallowed_vocabulary": 1},
         "acceptance_rate": "0.5",
         "acceptance_rate_denominator": 2,
         "harness_expectations_passed": True,
@@ -202,6 +217,36 @@ def test_benchmark_payload_and_report_are_reproducible_for_fixed_observations(tm
     assert write_benchmark_artifacts(payload, destination, overwrite=True) == destination
 
 
+def test_raw_rejected_output_requires_separate_explicit_debug_file(tmp_path) -> None:
+    record = RejectedModelOutput(
+        "How much did revenue grow?",
+        AnswerTask.REVENUE_GROWTH,
+        "prompt-hash",
+        "output-hash",
+        "Revenue increased with unsupported wording.",
+        GroundingDiagnostic(
+            False,
+            (GroundingRejectionCode.DISALLOWED_VOCABULARY,),
+            disallowed_words=("unsupported", "wording"),
+        ),
+    )
+    destination = tmp_path / "rejected.json"
+
+    with pytest.raises(BenchmarkError, match="allow_raw_output=True"):
+        write_rejected_output_debug_file((record,), destination, model=MODEL, inference=CONFIG)
+    written = write_rejected_output_debug_file(
+        (record,),
+        destination,
+        model=MODEL,
+        inference=CONFIG,
+        allow_raw_output=True,
+    )
+
+    payload = json.loads(written.read_text(encoding="utf-8"))
+    assert payload["records"][0]["raw_output"] == record.raw_output
+    assert "do not commit or publish" in payload["warning"]
+
+
 def test_benchmark_detects_harness_mismatch_and_model_identity_change() -> None:
     wrong_negative = _answer(
         AnswerStatus.ABSTAINED,
@@ -236,6 +281,7 @@ def test_benchmark_detects_harness_mismatch_and_model_identity_change() -> None:
                 "output",
                 "1",
                 ExplanationValidationStatus.PASSED,
+                GroundingDiagnostic(True, ()),
             ),
         }
     )
@@ -247,6 +293,27 @@ def test_benchmark_detects_harness_mismatch_and_model_identity_change() -> None:
             inference=CONFIG,
             source={},
         )
+
+
+def test_positive_inference_failure_is_not_treated_as_harness_success() -> None:
+    failed = _answer(
+        AnswerStatus.ABSTAINED,
+        ExplanationValidationStatus.NOT_RUN,
+        reason="model_inference_failed",
+        output_hash=None,
+    )
+    payload = run_acceptance_benchmark(
+        SequenceGenerator([failed]),  # type: ignore[arg-type]
+        (AcceptanceCase("positive", CaseKind.POSITIVE, _request("growth")),),  # type: ignore[arg-type]
+        model=MODEL,
+        inference=CONFIG,
+        source={},
+    )
+
+    summary = payload["summary"]
+    assert summary["harness_expectations_passed"] is False  # type: ignore[index]
+    assert summary["inference_failed_positive_runs"] == 1  # type: ignore[index]
+    assert summary["acceptance_rate_denominator"] == 0  # type: ignore[index]
 
 
 @pytest.mark.parametrize(

@@ -129,8 +129,8 @@ autonomous selection. A successful `GeneratedAnswer` has three visibly separate 
 The structured citations retain source, selected-text, evidence-export, and manifest hashes;
 supporting text; warnings; limitations; and review provenance. Generation provenance records the
 backend, model, revision, inference settings, grounding-policy version, prompt hash, and raw model
-output hash. Schema version `1.1` also records client-observed backend response latency in
-milliseconds and an explanation-validation outcome:
+output hash. Schema version `1.1` added client-observed backend response latency in milliseconds
+and an explanation-validation outcome:
 
 - `passed`: model output passed the unchanged grounding checks and appears in the answer;
 - `failed`: model output was received but failed grounding, so LedgerLens abstained; or
@@ -138,6 +138,11 @@ milliseconds and an explanation-validation outcome:
 
 The latency covers the complete backend call. For Ollama this includes the local model-inventory
 check and generation request. Raw model output is not promoted into a financial value.
+
+Schema version `1.2` adds deterministic rejection categories and safe details such as
+disallowed words, forbidden characters, and missing required-term groups. These diagnostics are
+additive: the original vocabulary, required groups, prompt, and accept-or-abstain behavior remain
+unchanged. Raw rejected output remains absent from answer provenance and benchmark artifacts.
 
 ## Reviewed NVIDIA demonstration
 

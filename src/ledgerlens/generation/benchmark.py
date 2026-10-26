@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -22,9 +23,10 @@ from ledgerlens.generation import (
     GeneratedAnswer,
     InferenceConfig,
     ModelIdentity,
+    RejectedModelOutput,
 )
 
-BENCHMARK_SCHEMA_VERSION = "1.0"
+BENCHMARK_SCHEMA_VERSION = "1.1"
 
 
 class BenchmarkError(ValueError):
@@ -132,6 +134,11 @@ def run_acceptance_benchmark(
                     "response_latency_ms": answer.provenance.response_latency_ms,
                     "prompt_sha256": answer.provenance.prompt_sha256,
                     "model_output_sha256": answer.provenance.model_output_sha256,
+                    "grounding_diagnostic": (
+                        answer.provenance.grounding_diagnostic.to_dict()
+                        if answer.provenance.grounding_diagnostic
+                        else None
+                    ),
                     "calculation_id": case.request.calculation.calculation_id,
                     "physical_pdf_pages": sorted(
                         {citation.physical_page_number for citation in answer.citations}
@@ -177,7 +184,26 @@ def _harness_passed(case: AcceptanceCase, answer: GeneratedAnswer) -> bool:
             and answer.provenance.prompt_sha256 is None
             and answer.provenance.explanation_validation is ExplanationValidationStatus.NOT_RUN
         )
-    return answer.provenance.prompt_sha256 is not None
+    has_model_record = (
+        answer.provenance.prompt_sha256 is not None
+        and answer.provenance.model_output_sha256 is not None
+        and answer.provenance.grounding_diagnostic is not None
+    )
+    if answer.provenance.explanation_validation is ExplanationValidationStatus.PASSED:
+        return (
+            has_model_record
+            and answer.status is AnswerStatus.ANSWERED
+            and answer.abstention_reason is None
+            and answer.provenance.grounding_diagnostic.accepted
+        )
+    if answer.provenance.explanation_validation is ExplanationValidationStatus.FAILED:
+        return (
+            has_model_record
+            and answer.status is AnswerStatus.ABSTAINED
+            and answer.abstention_reason == "model_output_failed_grounding"
+            and not answer.provenance.grounding_diagnostic.accepted
+        )
+    return False
 
 
 def _summarize(runs: list[dict[str, object]]) -> dict[str, object]:
@@ -198,6 +224,13 @@ def _summarize(runs: list[dict[str, object]]) -> dict[str, object]:
     latencies = sorted(
         Decimal(value) for run in positives if (value := run["response_latency_ms"]) is not None
     )
+    rejection_categories: Counter[str] = Counter()
+    for run in evaluated:
+        diagnostic = run["grounding_diagnostic"]
+        if isinstance(diagnostic, dict):
+            codes = diagnostic.get("rejection_codes", [])
+            if isinstance(codes, list):
+                rejection_categories.update(code for code in codes if isinstance(code, str))
     return {
         "total_runs": len(runs),
         "positive_runs": len(positives),
@@ -211,6 +244,7 @@ def _summarize(runs: list[dict[str, object]]) -> dict[str, object]:
         "accepted_positive_runs": accepted,
         "grounding_rejected_positive_runs": rejected,
         "inference_failed_positive_runs": failures,
+        "grounding_rejection_categories": dict(sorted(rejection_categories.items())),
         "acceptance_rate": str(Decimal(accepted) / Decimal(len(evaluated))) if evaluated else None,
         "acceptance_rate_denominator": len(evaluated),
         "harness_expectations_passed": all(run["harness_expectation_passed"] for run in runs),
@@ -243,6 +277,7 @@ def render_benchmark_report(payload: dict[str, object]) -> str:
         f"- Positive acceptance: `{summary['accepted_positive_runs']}/"
         f"{summary['acceptance_rate_denominator']}` (`{summary['acceptance_rate']}`)",
         f"- Grounding rejections: `{summary['grounding_rejected_positive_runs']}`",
+        f"- Rejection categories: `{summary['grounding_rejection_categories']}`",
         f"- Inference failures: `{summary['inference_failed_positive_runs']}`",
         f"- Expected structured abstentions: "
         f"`{summary['expected_structured_abstentions']}/{summary['negative_runs']}`",
@@ -250,14 +285,18 @@ def render_benchmark_report(payload: dict[str, object]) -> str:
         "",
         "## Runs",
         "",
-        "| Run | Kind | Status | Validation | Reason | Latency ms | Prompt hash | Output hash |",
-        "| --- | --- | --- | --- | --- | ---: | --- | --- |",
+        "| Run | Kind | Status | Validation | Grounding codes | Reason | Latency ms | "
+        "Prompt hash | Output hash |",
+        "| --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
     ]
     for run in runs:
         assert isinstance(run, dict)
+        diagnostic = run["grounding_diagnostic"]
+        codes = diagnostic.get("rejection_codes", []) if isinstance(diagnostic, dict) else []
         lines.append(
             f"| {run['run_id']} | {run['kind']} | {run['answer_status']} | "
-            f"{run['explanation_validation']} | {run['abstention_reason'] or ''} | "
+            f"{run['explanation_validation']} | {', '.join(codes)} | "
+            f"{run['abstention_reason'] or ''} | "
             f"{run['response_latency_ms'] or ''} | {run['prompt_sha256'] or ''} | "
             f"{run['model_output_sha256'] or ''} |"
         )
@@ -314,6 +353,56 @@ def write_benchmark_artifacts(
         raise BenchmarkError(f"could not publish benchmark artifacts: {exc}") from exc
 
 
+def write_rejected_output_debug_file(
+    records: tuple[RejectedModelOutput, ...],
+    output_path: str | Path,
+    *,
+    model: ModelIdentity,
+    inference: InferenceConfig,
+    allow_raw_output: bool = False,
+    overwrite: bool = False,
+) -> Path:
+    """Write raw rejected responses only after an explicit safety acknowledgement."""
+    if not allow_raw_output:
+        raise BenchmarkError("allow_raw_output=True is required to write rejected model text")
+    destination = Path(output_path)
+    if destination.exists() and not overwrite:
+        raise BenchmarkError(
+            f"debug output already exists: {destination}; use --overwrite to replace it"
+        )
+    payload = {
+        "schema_version": "1.0",
+        "warning": (
+            "Local debugging artifact containing raw rejected model output; do not commit or "
+            "publish this file"
+        ),
+        "model": model.to_dict(),
+        "inference": inference.to_dict(),
+        "records": [record.to_dict() for record in records],
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(temporary_path, destination)
+    except OSError as exc:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise BenchmarkError(f"could not write rejected-output debug file: {exc}") from exc
+    return destination
+
+
 __all__ = [
     "BENCHMARK_SCHEMA_VERSION",
     "AcceptanceCase",
@@ -322,4 +411,5 @@ __all__ = [
     "render_benchmark_report",
     "run_acceptance_benchmark",
     "write_benchmark_artifacts",
+    "write_rejected_output_debug_file",
 ]

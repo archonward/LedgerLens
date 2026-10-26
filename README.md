@@ -227,6 +227,10 @@ Markdown report beneath ignored `artifacts/`, while the default test suite valid
 without contacting Ollama. See
 [docs/model-acceptance-benchmark.md](docs/model-acceptance-benchmark.md).
 
+Grounding rejections expose deterministic reason categories without retaining raw model text.
+Raw rejected responses can be captured only through an explicit local-debug option whose output
+must remain beneath ignored `artifacts/`.
+
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,
 or preserve table structure reliably.

@@ -17,13 +17,20 @@ from demonstrate_nvidia_fy2026 import (
 
 from ledgerlens.calculations import FactOperand, profit_margin, year_over_year_growth
 from ledgerlens.financial_facts import Verification, VerificationStatus, load_financial_facts
-from ledgerlens.generation import AnswerGenerator, AnswerRequest, AnswerTask, InferenceConfig
+from ledgerlens.generation import (
+    AnswerGenerator,
+    AnswerRequest,
+    AnswerTask,
+    InferenceConfig,
+    RejectedModelOutput,
+)
 from ledgerlens.generation.benchmark import (
     AcceptanceCase,
     BenchmarkError,
     CaseKind,
     run_acceptance_benchmark,
     write_benchmark_artifacts,
+    write_rejected_output_debug_file,
 )
 from ledgerlens.generation.ollama import OllamaBackend, OllamaBackendError
 from ledgerlens.retrieval.bm25 import RetrievalError, load_evidence_export
@@ -50,6 +57,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--facts", type=Path, default=facts / "facts.jsonl")
     parser.add_argument("--review-record", type=Path, default=facts / "review.json")
     parser.add_argument("--output-directory", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--debug-rejected-output",
+        type=Path,
+        help=(
+            "explicitly retain raw rejected model text in this separate local file; the path "
+            "must be beneath ignored artifacts/"
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -119,6 +134,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("error: --run-live is required to execute the installed local model", file=sys.stderr)
         return 2
     try:
+        if args.output_directory.exists() and not args.overwrite:
+            raise BenchmarkError(
+                f"benchmark output already exists: {args.output_directory}; "
+                "choose a separate directory or use --overwrite"
+            )
+        debug_path = None
+        if args.debug_rejected_output is not None:
+            debug_path = args.debug_rejected_output.resolve()
+            try:
+                debug_path.relative_to(Path("artifacts").resolve())
+            except ValueError as exc:
+                raise BenchmarkError(
+                    "--debug-rejected-output must be located beneath ignored artifacts/"
+                ) from exc
+            if debug_path.exists() and not args.overwrite:
+                raise BenchmarkError(
+                    f"debug output already exists: {debug_path}; use --overwrite to replace it"
+                )
         demonstration = build_demonstration(
             args.source_pdf,
             args.evidence_directory,
@@ -131,7 +164,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = InferenceConfig(max_new_tokens=96, temperature=0.0)
         backend = OllamaBackend(timeout_seconds=args.timeout_seconds)
         model = backend.verify_installed_model()
-        generator = AnswerGenerator(backend, inference_config=config)
+        rejected_outputs: list[RejectedModelOutput] = []
+        generator = AnswerGenerator(
+            backend,
+            inference_config=config,
+            rejected_output_handler=(
+                rejected_outputs.append if args.debug_rejected_output is not None else None
+            ),
+        )
         source = {
             "document_id": corpus.document_id,
             "source_sha256": corpus.source_sha256,
@@ -151,6 +191,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         destination = write_benchmark_artifacts(
             payload, args.output_directory, overwrite=args.overwrite
         )
+        debug_destination = None
+        if debug_path is not None:
+            debug_destination = write_rejected_output_debug_file(
+                tuple(rejected_outputs),
+                debug_path,
+                model=model,
+                inference=config,
+                allow_raw_output=True,
+                overwrite=args.overwrite,
+            )
         summary = payload["summary"]
         print(
             json.dumps(
@@ -159,6 +209,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "configuration_id": payload["configuration_id"],
                     "model": payload["model"],
                     "summary": summary,
+                    "debug_rejected_output": (
+                        str(debug_destination) if debug_destination is not None else None
+                    ),
                 },
                 indent=2,
             )

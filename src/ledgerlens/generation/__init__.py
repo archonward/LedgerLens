@@ -25,7 +25,7 @@ from ledgerlens.calculations import (
 from ledgerlens.financial_facts import FinancialFact, VerificationStatus
 from ledgerlens.retrieval.bm25 import EvidenceCorpus
 
-GENERATION_SCHEMA_VERSION = "1.1"
+GENERATION_SCHEMA_VERSION = "1.2"
 GROUNDING_POLICY_VERSION = "1.0"
 _WORDS = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _FORBIDDEN = frozenset("0123456789$%€£¥[]{}<>")
@@ -55,6 +55,68 @@ class ExplanationValidationStatus(StrEnum):
     PASSED = "passed"
     FAILED = "failed"
     NOT_RUN = "not_run"
+
+
+class GroundingRejectionCode(StrEnum):
+    """Deterministic reasons that model output failed the grounding boundary."""
+
+    NON_STRING_OUTPUT = "non_string_output"
+    EMPTY_OUTPUT = "empty_output"
+    OUTPUT_TOO_LONG = "output_too_long"
+    MULTILINE_OUTPUT = "multiline_output"
+    FORBIDDEN_CHARACTER = "forbidden_character"
+    NO_LEXICAL_WORDS = "no_lexical_words"
+    DISALLOWED_VOCABULARY = "disallowed_vocabulary"
+    MISSING_REQUIRED_TERM_GROUP = "missing_required_term_group"
+    MULTIPLE_SENTENCES = "multiple_sentences"
+
+
+@dataclass(frozen=True)
+class GroundingDiagnostic:
+    """Safe rejection metadata that excludes the raw model response."""
+
+    accepted: bool
+    rejection_codes: tuple[GroundingRejectionCode, ...]
+    disallowed_words: tuple[str, ...] = ()
+    missing_required_term_groups: tuple[tuple[str, ...], ...] = ()
+    forbidden_characters: tuple[str, ...] = ()
+    normalized_character_count: int | None = None
+    sentence_terminal_count: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "accepted": self.accepted,
+            "rejection_codes": [code.value for code in self.rejection_codes],
+            "disallowed_words": list(self.disallowed_words),
+            "missing_required_term_groups": [
+                list(group) for group in self.missing_required_term_groups
+            ],
+            "forbidden_characters": list(self.forbidden_characters),
+            "normalized_character_count": self.normalized_character_count,
+            "sentence_terminal_count": self.sentence_terminal_count,
+        }
+
+
+@dataclass(frozen=True)
+class RejectedModelOutput:
+    """Opt-in local debug record; unlike provenance, this includes raw model text."""
+
+    question: str
+    task: AnswerTask
+    prompt_sha256: str
+    model_output_sha256: str
+    raw_output: str
+    diagnostic: GroundingDiagnostic
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "question": self.question,
+            "task": self.task.value,
+            "prompt_sha256": self.prompt_sha256,
+            "model_output_sha256": self.model_output_sha256,
+            "raw_output": self.raw_output,
+            "grounding_diagnostic": self.diagnostic.to_dict(),
+        }
 
 
 @dataclass(frozen=True)
@@ -282,6 +344,7 @@ class GenerationProvenance:
     model_output_sha256: str | None
     response_latency_ms: str | None = None
     explanation_validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN
+    grounding_diagnostic: GroundingDiagnostic | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -292,6 +355,9 @@ class GenerationProvenance:
             "model_output_sha256": self.model_output_sha256,
             "response_latency_ms": self.response_latency_ms,
             "explanation_validation": self.explanation_validation.value,
+            "grounding_diagnostic": (
+                self.grounding_diagnostic.to_dict() if self.grounding_diagnostic else None
+            ),
         }
 
 
@@ -330,10 +396,15 @@ class AnswerGenerator:
     """Validate inputs, obtain a qualitative explanation, and render an answer."""
 
     def __init__(
-        self, backend: LocalModelBackend, *, inference_config: InferenceConfig | None = None
+        self,
+        backend: LocalModelBackend,
+        *,
+        inference_config: InferenceConfig | None = None,
+        rejected_output_handler: Callable[[RejectedModelOutput], None] | None = None,
     ) -> None:
         self._backend = backend
         self._config = inference_config or InferenceConfig()
+        self._rejected_output_handler = rejected_output_handler
 
     def generate(self, request: AnswerRequest) -> GeneratedAnswer:
         """Answer, or abstain on unsupported, unverified, or stale material."""
@@ -355,8 +426,19 @@ class AnswerGenerator:
             )
         latency_ms = _elapsed_ms(started_ns)
         output_hash = _sha256(raw_output) if isinstance(raw_output, str) else None
-        explanation = _checked_explanation(raw_output, allowed, required)
+        explanation, diagnostic = _diagnose_explanation(raw_output, allowed, required)
         if explanation is None:
+            if self._rejected_output_handler is not None and isinstance(raw_output, str):
+                self._rejected_output_handler(
+                    RejectedModelOutput(
+                        request.question,
+                        request.task,
+                        prompt_hash,
+                        output_hash or _sha256(raw_output),
+                        raw_output,
+                        diagnostic,
+                    )
+                )
             return self._abstain(
                 request,
                 "model_output_failed_grounding",
@@ -364,6 +446,7 @@ class AnswerGenerator:
                 output_hash,
                 latency_ms,
                 ExplanationValidationStatus.FAILED,
+                diagnostic,
             )
 
         citations = _unique_citations(request.facts)
@@ -383,6 +466,7 @@ class AnswerGenerator:
                 output_hash,
                 latency_ms,
                 ExplanationValidationStatus.PASSED,
+                diagnostic,
             ),
         )
 
@@ -450,6 +534,7 @@ class AnswerGenerator:
         output: str | None,
         latency_ms: str | None = None,
         validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN,
+        diagnostic: GroundingDiagnostic | None = None,
     ) -> GenerationProvenance:
         return GenerationProvenance(
             self._backend.identity,
@@ -458,6 +543,7 @@ class AnswerGenerator:
             output,
             latency_ms,
             validation,
+            diagnostic,
         )
 
     def _abstain(
@@ -468,6 +554,7 @@ class AnswerGenerator:
         output: str | None = None,
         latency_ms: str | None = None,
         validation: ExplanationValidationStatus = ExplanationValidationStatus.NOT_RUN,
+        diagnostic: GroundingDiagnostic | None = None,
     ) -> GeneratedAnswer:
         return GeneratedAnswer(
             AnswerStatus.ABSTAINED,
@@ -478,7 +565,7 @@ class AnswerGenerator:
             None,
             None,
             (),
-            self._provenance(prompt, output, latency_ms, validation),
+            self._provenance(prompt, output, latency_ms, validation, diagnostic),
             reason,
         )
 
@@ -543,24 +630,56 @@ def _build_prompt(request: AnswerRequest, conclusion: str, allowed_words: frozen
     )
 
 
+def _diagnose_explanation(
+    output: object,
+    allowed: frozenset[str],
+    required: tuple[frozenset[str], ...],
+) -> tuple[str | None, GroundingDiagnostic]:
+    if not isinstance(output, str):
+        diagnostic = GroundingDiagnostic(False, (GroundingRejectionCode.NON_STRING_OUTPUT,))
+        return None, diagnostic
+    explanation = " ".join(output.split())
+    codes: list[GroundingRejectionCode] = []
+    if not explanation:
+        codes.append(GroundingRejectionCode.EMPTY_OUTPUT)
+    if len(explanation) > 300:
+        codes.append(GroundingRejectionCode.OUTPUT_TOO_LONG)
+    if "\n" in output:
+        codes.append(GroundingRejectionCode.MULTILINE_OUTPUT)
+    forbidden = tuple(sorted({character for character in explanation if character in _FORBIDDEN}))
+    if forbidden:
+        codes.append(GroundingRejectionCode.FORBIDDEN_CHARACTER)
+    words = {word.casefold() for word in _WORDS.findall(explanation)}
+    if not words:
+        codes.append(GroundingRejectionCode.NO_LEXICAL_WORDS)
+    disallowed = tuple(sorted(words - allowed))
+    if disallowed:
+        codes.append(GroundingRejectionCode.DISALLOWED_VOCABULARY)
+    missing = tuple(tuple(sorted(group)) for group in required if not words & group)
+    if missing:
+        codes.append(GroundingRejectionCode.MISSING_REQUIRED_TERM_GROUP)
+    sentence_terminals = len(re.findall(r"[.!?]", explanation))
+    if sentence_terminals > 1:
+        codes.append(GroundingRejectionCode.MULTIPLE_SENTENCES)
+    diagnostic = GroundingDiagnostic(
+        accepted=not codes,
+        rejection_codes=tuple(codes),
+        disallowed_words=disallowed,
+        missing_required_term_groups=missing,
+        forbidden_characters=forbidden,
+        normalized_character_count=len(explanation),
+        sentence_terminal_count=sentence_terminals,
+    )
+    return (explanation if diagnostic.accepted else None), diagnostic
+
+
 def _checked_explanation(
     output: object,
     allowed: frozenset[str],
     required: tuple[frozenset[str], ...],
 ) -> str | None:
-    if not isinstance(output, str):
-        return None
-    explanation = " ".join(output.split())
-    if not explanation or len(explanation) > 300 or "\n" in output:
-        return None
-    if any(character in _FORBIDDEN for character in explanation):
-        return None
-    words = {word.casefold() for word in _WORDS.findall(explanation)}
-    if not words or not words <= allowed or any(not words & group for group in required):
-        return None
-    if len(re.findall(r"[.!?]", explanation)) > 1:
-        return None
-    return explanation
+    """Compatibility wrapper retaining the original accept-or-reject behavior."""
+    return _diagnose_explanation(output, allowed, required)[0]
 
 
 def _unique_citations(facts: tuple[FinancialFact, ...]) -> tuple[EvidenceCitation, ...]:
@@ -634,10 +753,13 @@ __all__ = [
     "ComputedValue",
     "EvidenceCitation",
     "ExplanationValidationStatus",
+    "GroundingDiagnostic",
+    "GroundingRejectionCode",
     "GeneratedAnswer",
     "GenerationProvenance",
     "InferenceConfig",
     "LocalModelBackend",
     "ModelIdentity",
+    "RejectedModelOutput",
     "ReportedValue",
 ]

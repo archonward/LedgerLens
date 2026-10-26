@@ -26,6 +26,7 @@ from ledgerlens.generation import (
     AnswerTask,
     ExplanationValidationStatus,
     GenerationProvenance,
+    GroundingRejectionCode,
     InferenceConfig,
     ModelIdentity,
 )
@@ -214,6 +215,66 @@ def test_numeric_or_causal_model_claim_causes_abstention() -> None:
         assert answer.citations == ()
         assert answer.provenance.response_latency_ms is not None
         assert answer.provenance.explanation_validation is ExplanationValidationStatus.FAILED
+
+    assert numeric.provenance.grounding_diagnostic is not None
+    assert numeric.provenance.grounding_diagnostic.rejection_codes == (
+        GroundingRejectionCode.FORBIDDEN_CHARACTER,
+        GroundingRejectionCode.DISALLOWED_VOCABULARY,
+    )
+    assert numeric.provenance.grounding_diagnostic.forbidden_characters == ("0", "5")
+    assert numeric.provenance.grounding_diagnostic.disallowed_words == ("by", "percent")
+    assert causal.provenance.grounding_diagnostic is not None
+    assert causal.provenance.grounding_diagnostic.rejection_codes == (
+        GroundingRejectionCode.DISALLOWED_VOCABULARY,
+    )
+    assert causal.provenance.grounding_diagnostic.disallowed_words == ("because", "demand")
+
+
+def test_wrong_direction_and_multiline_diagnostics_do_not_change_rejection() -> None:
+    corpus, facts = _fixture()
+    request = _growth_request(corpus, facts)
+
+    wrong = AnswerGenerator(MockBackend("Revenue decreased from the prior fiscal year.")).generate(
+        request
+    )
+    multiline = AnswerGenerator(
+        MockBackend("Revenue increased from the prior fiscal year.\nThis result shows revenue.")
+    ).generate(request)
+
+    assert wrong.abstention_reason == "model_output_failed_grounding"
+    assert wrong.provenance.grounding_diagnostic is not None
+    assert wrong.provenance.grounding_diagnostic.rejection_codes == (
+        GroundingRejectionCode.DISALLOWED_VOCABULARY,
+        GroundingRejectionCode.MISSING_REQUIRED_TERM_GROUP,
+    )
+    assert wrong.provenance.grounding_diagnostic.disallowed_words == ("decreased",)
+    assert wrong.provenance.grounding_diagnostic.missing_required_term_groups == (("increased",),)
+    assert multiline.abstention_reason == "model_output_failed_grounding"
+    assert multiline.provenance.grounding_diagnostic is not None
+    assert GroundingRejectionCode.MULTILINE_OUTPUT in (
+        multiline.provenance.grounding_diagnostic.rejection_codes
+    )
+    assert GroundingRejectionCode.MULTIPLE_SENTENCES in (
+        multiline.provenance.grounding_diagnostic.rejection_codes
+    )
+
+
+def test_raw_rejected_output_is_available_only_through_opt_in_handler() -> None:
+    corpus, facts = _fixture()
+    request = _growth_request(corpus, facts)
+    records = []
+    generator = AnswerGenerator(
+        MockBackend("Revenue increased because of demand."),
+        rejected_output_handler=records.append,
+    )
+
+    answer = generator.generate(request)
+
+    assert answer.status is AnswerStatus.ABSTAINED
+    assert len(records) == 1
+    assert records[0].raw_output == "Revenue increased because of demand."
+    assert records[0].model_output_sha256 == answer.provenance.model_output_sha256
+    assert "raw_output" not in answer.to_dict()["provenance"]  # type: ignore[operator]
 
 
 def test_unsupported_question_abstains_before_model_call() -> None:

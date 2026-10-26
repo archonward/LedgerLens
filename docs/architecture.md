@@ -54,6 +54,8 @@ described here remain **planned and unimplemented**.
    its model digest, inference settings, response latency, and grounding outcome are recorded. An
    opt-in acceptance harness repeats the two reviewed NVIDIA tasks and checks controlled negative
    abstentions while keeping live-model execution separate from deterministic offline tests.
+   Rejections expose structured rule-violation diagnostics without retaining raw output by default;
+   raw rejected text is available only through a separate explicit Git-ignored debug artifact.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.
