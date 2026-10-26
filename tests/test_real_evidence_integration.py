@@ -17,6 +17,11 @@ from ledgerlens.generation import (
     CallableLocalModelBackend,
     ModelIdentity,
 )
+from ledgerlens.orchestration import (
+    FinancialAnswerOrchestrator,
+    OrchestrationRequest,
+    OrchestrationStatus,
+)
 from ledgerlens.retrieval.bm25 import load_evidence_export
 
 DOCUMENT_ID = "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c"
@@ -186,3 +191,58 @@ def test_reviewed_nvidia_facts_ground_revenue_growth_and_margin_answers() -> Non
         assert "Source-reported values:" in answer.answer_text
         assert "Computed result:" in answer.answer_text
         assert "Model-generated explanation:" in answer.answer_text
+
+
+def test_reviewed_nvidia_facts_are_selected_by_deterministic_orchestration() -> None:
+    _require_local_artifacts()
+    corpus = load_evidence_export(EVIDENCE_DIRECTORY)
+    facts = load_financial_facts(FACTS_DIRECTORY / "facts.jsonl", corpus)
+    by_id = {fact.fact_id: fact for fact in facts}
+    current_revenue = by_id["nvidia-fy2026-revenue"]
+    target_end = current_revenue.reporting_period.end_date
+    assert target_end is not None
+    responses = iter(
+        (
+            "Revenue increased from the prior fiscal year.",
+            "Net income represented a portion of revenue for the fiscal year.",
+        )
+    )
+    backend = CallableLocalModelBackend(
+        ModelIdentity("mock-local", "controlled-open-model", "orchestration-test"),
+        lambda _prompt, _config: next(responses),
+    )
+    orchestrator = FinancialAnswerOrchestrator(AnswerGenerator(backend))
+
+    growth = orchestrator.answer(
+        OrchestrationRequest(
+            "How much did NVIDIA revenue grow in FY2026?",
+            current_revenue.company,
+            target_end,
+            facts,
+            corpus,
+        )
+    )
+    margin = orchestrator.answer(
+        OrchestrationRequest(
+            "What was NVIDIA's FY2026 net profit margin?",
+            current_revenue.company,
+            target_end,
+            facts,
+            corpus,
+        )
+    )
+
+    assert growth.status is OrchestrationStatus.ANSWERED
+    assert growth.selected_fact_ids == (
+        "nvidia-fy2026-revenue",
+        "nvidia-fy2025-revenue",
+    )
+    assert growth.calculation is not None
+    assert str(growth.calculation.computed_value) == "65.47353579009479145114447075411695"
+    assert margin.status is OrchestrationStatus.ANSWERED
+    assert margin.selected_fact_ids == (
+        "nvidia-fy2026-net-income",
+        "nvidia-fy2026-revenue",
+    )
+    assert margin.calculation is not None
+    assert str(margin.calculation.computed_value) == "55.60253406070260908223656790375015"

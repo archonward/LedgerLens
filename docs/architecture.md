@@ -56,7 +56,14 @@ described here remain **planned and unimplemented**.
    abstentions while keeping live-model execution separate from deterministic offline tests.
    Rejections expose structured rule-violation diagnostics without retaining raw output by default;
    raw rejected text is available only through a separate explicit Git-ignored debug artifact.
-7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
+7. **Orchestration (implemented narrow foundation):** identify only the supported revenue-growth
+   and net-profit-margin tasks, match caller-supplied reviewed facts through explicit company,
+   metric, and reporting-period rules, revalidate evidence, invoke existing Decimal calculations,
+   and pass the result to the unchanged answer generator. Candidate and selected fact IDs remain
+   auditable. Missing, ambiguous, unverified, stale, or incompatible inputs produce structured
+   abstention. Fact extraction, unrestricted model selection, company aliases, and autonomous
+   retrieval remain unimplemented.
+8. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.
    Hit@K, Recall@K, and MRR are implemented; numerical, citation, abstention, generation, and

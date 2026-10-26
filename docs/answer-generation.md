@@ -187,6 +187,10 @@ and protected JSON/Markdown artifacts, use the
 [Ollama model-acceptance benchmark](model-acceptance-benchmark.md). It is a separate opt-in script;
 the default offline suite only tests its deterministic harness with controlled outcomes.
 
+The [deterministic orchestration layer](orchestration.md) can construct the two supported
+`AnswerRequest` variants from explicitly supplied reviewed facts. It does not change this module's
+revalidation, calculation reproduction, grounding, citation, or abstention boundaries.
+
 ## Current limitations
 
 - Only explicitly selected revenue-growth and net-profit-margin requests are supported.

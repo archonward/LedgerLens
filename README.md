@@ -36,6 +36,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [NVIDIA FY2026 reviewed evidence demonstration](docs/real-financial-evidence.md),
 [evidence-grounded answer generation](docs/answer-generation.md),
 [Ollama model-acceptance benchmark](docs/model-acceptance-benchmark.md),
+[deterministic retrieval-to-answer orchestration](docs/orchestration.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -230,6 +231,12 @@ without contacting Ollama. See
 Grounding rejections expose deterministic reason categories without retaining raw model text.
 Raw rejected responses can be captured only through an explicit local-debug option whose output
 must remain beneath ignored `artifacts/`.
+
+The Python orchestration API identifies only the two supported financial tasks, deterministically
+matches explicitly supplied reviewed facts by company, metric, and reporting period, revalidates
+their evidence, invokes the existing Decimal calculations, and passes the result to the unchanged
+answer generator. Every selection and structured abstention is auditable. See
+[docs/orchestration.md](docs/orchestration.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,
