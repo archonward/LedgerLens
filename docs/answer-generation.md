@@ -177,6 +177,11 @@ Without that exact environment variable, the test skips before contacting Ollama
 when the Git-ignored NVIDIA evidence or fact artifacts are unavailable. Once opted in with those
 artifacts present, an unavailable server or missing exact model is a test failure, not a fallback.
 
+For repeated positive runs, negative cases, structured abstentions, aggregate acceptance metrics,
+and protected JSON/Markdown artifacts, use the
+[Ollama model-acceptance benchmark](model-acceptance-benchmark.md). It is a separate opt-in script;
+the default offline suite only tests its deterministic harness with controlled outcomes.
+
 ## Current limitations
 
 - Only explicitly selected revenue-growth and net-profit-margin requests are supported.

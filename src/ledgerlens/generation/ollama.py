@@ -105,8 +105,7 @@ class OllamaBackend:
 
     def generate(self, prompt: str, config: InferenceConfig) -> str:
         """Verify the exact local tag and request one non-streaming explanation."""
-        digest = self._installed_model_digest()
-        self._identity = ModelIdentity("ollama", OLLAMA_MODEL, f"sha256-{digest}")
+        self.verify_installed_model()
         response = self.transport.request(
             "POST",
             f"{self.base_url}/api/generate",
@@ -131,6 +130,12 @@ class OllamaBackend:
         if not isinstance(text, str) or not text.strip():
             raise OllamaBackendError("Ollama response is missing generated text")
         return text
+
+    def verify_installed_model(self) -> ModelIdentity:
+        """Pin the exact installed tag digest without loading or generating from the model."""
+        digest = self._installed_model_digest()
+        self._identity = ModelIdentity("ollama", OLLAMA_MODEL, f"sha256-{digest}")
+        return self._identity
 
     def _installed_model_digest(self) -> str:
         response = self.transport.request(

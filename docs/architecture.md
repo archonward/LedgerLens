@@ -51,7 +51,9 @@ described here remain **planned and unimplemented**.
    loading for other runtimes, broader question support, semantic entailment, automatic input
    selection, and a conversational interface remain planned. An optional loopback-only Ollama
    adapter supports the exact locally installed `qwen3:4b-instruct` tag without downloading models;
-   its model digest, inference settings, response latency, and grounding outcome are recorded.
+   its model digest, inference settings, response latency, and grounding outcome are recorded. An
+   opt-in acceptance harness repeats the two reviewed NVIDIA tasks and checks controlled negative
+   abstentions while keeping live-model execution separate from deterministic offline tests.
 7. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.

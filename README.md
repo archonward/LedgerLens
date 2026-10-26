@@ -35,6 +35,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [deterministic calculations](docs/calculations.md),
 [NVIDIA FY2026 reviewed evidence demonstration](docs/real-financial-evidence.md),
 [evidence-grounded answer generation](docs/answer-generation.md),
+[Ollama model-acceptance benchmark](docs/model-acceptance-benchmark.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -219,6 +220,12 @@ An optional standard-library Ollama adapter supports only an already-installed l
 test is disabled unless `LEDGERLENS_RUN_OLLAMA_SMOKE=1` is explicitly set. Model identity and
 digest, inference settings, response latency, and strict grounding outcome are retained in answer
 provenance.
+
+The opt-in model-acceptance benchmark repeats the two reviewed NVIDIA questions and includes
+controlled negative and structured-abstention cases. It emits machine-readable JSON and a concise
+Markdown report beneath ignored `artifacts/`, while the default test suite validates the harness
+without contacting Ollama. See
+[docs/model-acceptance-benchmark.md](docs/model-acceptance-benchmark.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

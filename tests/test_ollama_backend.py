@@ -76,6 +76,17 @@ def test_ollama_backend_refuses_to_generate_when_exact_model_is_absent() -> None
     assert backend.identity.revision is None
 
 
+def test_ollama_backend_can_pin_identity_without_running_inference() -> None:
+    transport = MockTransport([{"models": [{"model": OLLAMA_MODEL, "digest": DIGEST}]}])
+    backend = OllamaBackend(transport=transport)
+
+    identity = backend.verify_installed_model()
+
+    assert identity.revision == f"sha256-{DIGEST}"
+    assert len(transport.calls) == 1
+    assert transport.calls[0][0] == "GET"
+
+
 @pytest.mark.parametrize(
     "response, message",
     [
