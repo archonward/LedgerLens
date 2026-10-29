@@ -98,4 +98,5 @@ The default suite uses controlled mock backends and never contacts Ollama or exe
   implemented.
 - The fact collection is supplied explicitly; ranked retrieval does not discover financial facts.
 - Duplicate valid facts cause abstention rather than preference or ranking.
-- No CLI or conversational routing is provided.
+- The narrow [`ledgerlens answer`](answer-cli.md) command is a direct adapter over this API; no
+  conversational routing is provided.

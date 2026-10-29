@@ -38,6 +38,7 @@ def test_help_works_for_both_entry_points(entry_point: list[str]) -> None:
     assert "embed-evidence-chunks" in result.stdout
     assert "chunk-semantic-retrieve" in result.stdout
     assert "evaluate-retrieval" in result.stdout
+    assert "answer" in result.stdout
     assert "--version" in result.stdout
 
 

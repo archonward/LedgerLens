@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ledgerlens import __version__
+from ledgerlens.answer_cli import add_answer_parser
 from ledgerlens.evaluation import (
     EvaluationError,
     evaluate_bm25,
@@ -486,6 +487,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Replace an existing evaluation report explicitly.",
     )
     evaluation_parser.set_defaults(handler=_run_evaluate_retrieval)
+    add_answer_parser(subparsers)
     return parser
 
 

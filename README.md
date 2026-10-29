@@ -37,6 +37,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [evidence-grounded answer generation](docs/answer-generation.md),
 [Ollama model-acceptance benchmark](docs/model-acceptance-benchmark.md),
 [deterministic retrieval-to-answer orchestration](docs/orchestration.md),
+[financial answer CLI](docs/answer-cli.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
 ## Setup
@@ -237,6 +238,22 @@ matches explicitly supplied reviewed facts by company, metric, and reporting per
 their evidence, invokes the existing Decimal calculations, and passes the result to the unchanged
 answer generator. Every selection and structured abstention is auditable. See
 [docs/orchestration.md](docs/orchestration.md).
+
+The `ledgerlens answer` command is a narrow adapter over that API. It requires the question, exact
+company name, exact target-period end date, reviewed evidence directory, financial-facts JSONL,
+and an explicit `--ollama` opt-in. Human-readable and JSON output preserve selection decisions,
+citations, provenance, limitations, and structured abstentions:
+
+```bash
+uv run ledgerlens answer "How much did NVIDIA revenue grow in FY2026?" \
+  --company "NVIDIA Corporation" --target-period-end 2026-01-25 \
+  --evidence-directory "artifacts/evidence/sha256-<hash>" \
+  --financial-facts "artifacts/financial-facts/sha256-<hash>/facts.jsonl" \
+  --ollama --json
+```
+
+The command never downloads a model or infers the company, fiscal period, or financial inputs. See
+[docs/answer-cli.md](docs/answer-cli.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

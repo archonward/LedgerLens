@@ -63,7 +63,13 @@ described here remain **planned and unimplemented**.
    auditable. Missing, ambiguous, unverified, stale, or incompatible inputs produce structured
    abstention. Fact extraction, unrestricted model selection, company aliases, and autonomous
    retrieval remain unimplemented.
-8. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
+8. **User interface (implemented narrow CLI):** `ledgerlens answer` loads caller-specified local
+   reviewed evidence and facts, requires an exact company and reporting-period end date, and
+   delegates directly to the orchestration layer. Terminal and JSON views retain selection audit,
+   citations, provenance, limitations, and abstention reasons. Ollama execution requires explicit
+   `--ollama` opt-in and retains the fixed model and inference settings. Automatic retrieval,
+   fiscal-period inference, aliases, and a conversational interface remain unimplemented.
+9. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.
    Hit@K, Recall@K, and MRR are implemented; numerical, citation, abstention, generation, and

@@ -191,6 +191,11 @@ The [deterministic orchestration layer](orchestration.md) can construct the two 
 `AnswerRequest` variants from explicitly supplied reviewed facts. It does not change this module's
 revalidation, calculation reproduction, grounding, citation, or abstention boundaries.
 
+The user-facing [`ledgerlens answer`](answer-cli.md) command loads reviewed local evidence and
+facts, then delegates to that orchestrator. It fixes the existing Ollama model and inference
+configuration and requires explicit `--ollama` opt-in; it does not change this generator's prompt,
+grounding policy, numeric rendering, citations, or abstention behavior.
+
 ## Current limitations
 
 - Only explicitly selected revenue-growth and net-profit-margin requests are supported.
