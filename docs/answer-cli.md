@@ -17,7 +17,7 @@ Ollama service; LedgerLens does not pull it or fall back to another model.
 
 ```powershell
 uv run ledgerlens answer "How much did NVIDIA revenue grow in FY2026?" `
-  --company "NVIDIA Corporation" `
+  --company "NVIDIA" `
   --target-period-end 2026-01-25 `
   --evidence-directory "artifacts/evidence/sha256-<document-hash>" `
   --financial-facts "artifacts/financial-facts/sha256-<document-hash>/facts.jsonl" `
@@ -28,7 +28,7 @@ The module entry point is equivalent:
 
 ```bash
 uv run python -m ledgerlens answer "What was NVIDIA's FY2026 net profit margin?" \
-  --company "NVIDIA Corporation" \
+  --company "NVIDIA" \
   --target-period-end 2026-01-25 \
   --evidence-directory "artifacts/evidence/sha256-<document-hash>" \
   --financial-facts "artifacts/financial-facts/sha256-<document-hash>/facts.jsonl" \

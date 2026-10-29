@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ledgerlens.generation import (
+    GROUNDING_POLICY_VERSION,
     AnswerRequest,
     AnswerStatus,
     ExplanationValidationStatus,
@@ -26,7 +27,7 @@ from ledgerlens.generation import (
     RejectedModelOutput,
 )
 
-BENCHMARK_SCHEMA_VERSION = "1.1"
+BENCHMARK_SCHEMA_VERSION = "1.2"
 
 
 class BenchmarkError(ValueError):
@@ -103,6 +104,7 @@ def run_acceptance_benchmark(
     configuration = {
         "model": model.to_dict(),
         "inference": inference.to_dict(),
+        "grounding_policy_version": GROUNDING_POLICY_VERSION,
         "cases": definitions,
         "source": source,
     }
@@ -273,6 +275,7 @@ def render_benchmark_report(payload: dict[str, object]) -> str:
         f"- Created: `{payload['created_at_utc']}`",
         f"- Model: `{payload['model']}`",
         f"- Inference: `{payload['inference']}`",
+        f"- Grounding policy: `{payload['grounding_policy_version']}`",
         f"- Harness expectations passed: `{summary['harness_expectations_passed']}`",
         f"- Positive acceptance: `{summary['accepted_positive_runs']}/"
         f"{summary['acceptance_rate_denominator']}` (`{summary['acceptance_rate']}`)",

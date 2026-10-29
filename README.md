@@ -246,7 +246,7 @@ citations, provenance, limitations, and structured abstentions:
 
 ```bash
 uv run ledgerlens answer "How much did NVIDIA revenue grow in FY2026?" \
-  --company "NVIDIA Corporation" --target-period-end 2026-01-25 \
+  --company "NVIDIA" --target-period-end 2026-01-25 \
   --evidence-directory "artifacts/evidence/sha256-<hash>" \
   --financial-facts "artifacts/financial-facts/sha256-<hash>/facts.jsonl" \
   --ollama --json

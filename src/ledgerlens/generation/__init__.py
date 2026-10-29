@@ -26,7 +26,7 @@ from ledgerlens.financial_facts import FinancialFact, VerificationStatus
 from ledgerlens.retrieval.bm25 import EvidenceCorpus
 
 GENERATION_SCHEMA_VERSION = "1.2"
-GROUNDING_POLICY_VERSION = "1.0"
+GROUNDING_POLICY_VERSION = "1.1"
 _WORDS = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _FORBIDDEN = frozenset("0123456789$%€£¥[]{}<>")
 _COMMON_WORDS = frozenset(
@@ -595,11 +595,19 @@ def _grounded_conclusion(
 ) -> tuple[str, frozenset[str], tuple[frozenset[str], ...]]:
     if request.task is AnswerTask.REVENUE_GROWTH:
         value = request.calculation.computed_value
-        direction = "increased" if value > 0 else "decreased" if value < 0 else "unchanged"
+        if value > 0:
+            direction = "increased"
+            equivalent_directions = frozenset({"increase", "increased"})
+        elif value < 0:
+            direction = "decreased"
+            equivalent_directions = frozenset({"decrease", "decreased"})
+        else:
+            direction = "unchanged"
+            equivalent_directions = frozenset({"unchanged"})
         return (
             f"Revenue {direction} from the prior fiscal year.",
-            _COMMON_WORDS | {"revenue", direction},
-            (frozenset({"revenue"}), frozenset({direction})),
+            _COMMON_WORDS | {"an", "revenue"} | equivalent_directions,
+            (frozenset({"revenue"}), equivalent_directions),
         )
     return (
         "Net income represented a portion of revenue for the fiscal year.",

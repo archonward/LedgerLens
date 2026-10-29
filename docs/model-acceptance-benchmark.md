@@ -1,8 +1,8 @@
 # Ollama model-acceptance benchmark
 
 This benchmark measures whether the selected local `qwen3:4b-instruct` model can produce text that
-passes LedgerLens's existing answer-generation boundary. It does not change prompts, facts,
-calculations, numeric rendering, citations, or grounding rules to improve acceptance.
+passes LedgerLens's versioned answer-generation boundary. A benchmark run does not change prompts,
+facts, calculations, numeric rendering, citations, or grounding rules to improve acceptance.
 
 ## Fixed case set
 
@@ -20,8 +20,9 @@ existing deterministic calculation functions and these cases:
 
 The negative transformations are controlled benchmark cases. They do not modify the reviewed fact
 file, selected evidence, review record, source PDF, or calculations. Only the two positive cases
-enter the model-acceptance-rate denominator. Repeats can be set from 1 through 20; changing the
-repeat count changes the configuration ID.
+enter the model-acceptance-rate denominator. Repeats can be set from 1 through 20. The grounding
+policy version and repeat count are both part of the configuration ID, so a policy comparison has
+a distinct identifier even when its model, inference settings, cases, and source inputs match.
 
 ## Run the live benchmark
 
@@ -55,7 +56,7 @@ contacting the model and publishes both files atomically only after all runs com
 
 - schema and deterministic configuration IDs;
 - exact Ollama model tag and SHA-256 digest;
-- fixed inference configuration;
+- fixed inference configuration and grounding-policy version;
 - source-document, evidence-export, review-record, fact, calculation, and physical-page references;
 - case definitions and repeat counts;
 - per-run answer status, grounding outcome, abstention reason, client-observed latency, prompt hash,
@@ -86,6 +87,22 @@ uv run python scripts/benchmark_ollama_generation.py --run-live `
 The debug path must be beneath Git-ignored `artifacts/`. It is protected against overwrite unless
 `--overwrite` is supplied, carries a do-not-publish warning, and is never embedded in
 `benchmark.json` or `report.md`. Omitting `--debug-rejected-output` retains no raw model response.
+
+The policy `1.0` diagnostic run reproduced the known three revenue-growth rejections. Local raw
+inspection confirmed that all three outputs used the same noncausal nominal increase wording and
+contained no number, citation, forecast, cause, or extra financial relationship. This justified
+the narrow policy `1.1` direction-word equivalence; the raw response remains local and ignored.
+
+For an after-change comparison, use a new destination rather than overwriting the baseline:
+
+```powershell
+uv run python scripts/benchmark_ollama_generation.py --run-live `
+  --output-directory artifacts/evaluation/ollama-generation-grounding-policy-1-1
+```
+
+Compare the exact model digest, source identities, case definitions, inference settings, per-run
+prompt/output hashes, policy version, and acceptance summary before attributing a difference to the
+grounding change.
 
 ## Reading the report correctly
 

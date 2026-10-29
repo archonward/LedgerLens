@@ -177,6 +177,19 @@ def test_growth_answer_separates_reported_computed_and_model_content() -> None:
     assert "$150" in backend.prompt and "50.0 percent" in backend.prompt
 
 
+def test_equivalent_noncausal_growth_wording_is_accepted() -> None:
+    corpus, facts = _fixture()
+    request = _growth_request(corpus, facts)
+
+    output = "Revenue for the current fiscal year shows an increase compared to the prior year."
+    answer = AnswerGenerator(MockBackend(output)).generate(request)
+
+    assert answer.status is AnswerStatus.ANSWERED
+    assert answer.provenance.grounding_diagnostic is not None
+    assert answer.provenance.grounding_diagnostic.accepted is True
+    assert answer.provenance.to_dict()["grounding_policy_version"] == "1.1"
+
+
 def test_net_profit_margin_answer_uses_validated_inputs() -> None:
     corpus, facts = _fixture()
     profit = facts["net_income"]
@@ -248,7 +261,9 @@ def test_wrong_direction_and_multiline_diagnostics_do_not_change_rejection() -> 
         GroundingRejectionCode.MISSING_REQUIRED_TERM_GROUP,
     )
     assert wrong.provenance.grounding_diagnostic.disallowed_words == ("decreased",)
-    assert wrong.provenance.grounding_diagnostic.missing_required_term_groups == (("increased",),)
+    assert wrong.provenance.grounding_diagnostic.missing_required_term_groups == (
+        ("increase", "increased"),
+    )
     assert multiline.abstention_reason == "model_output_failed_grounding"
     assert multiline.provenance.grounding_diagnostic is not None
     assert GroundingRejectionCode.MULTILINE_OUTPUT in (
@@ -256,6 +271,33 @@ def test_wrong_direction_and_multiline_diagnostics_do_not_change_rejection() -> 
     )
     assert GroundingRejectionCode.MULTIPLE_SENTENCES in (
         multiline.provenance.grounding_diagnostic.rejection_codes
+    )
+
+
+def test_nominal_growth_wording_still_rejects_wrong_direction_forecasts_and_citations() -> None:
+    corpus, facts = _fixture()
+    request = _growth_request(corpus, facts)
+    rejected = (
+        "Revenue for the current fiscal year shows a decrease compared to the prior year.",
+        "Revenue for the current fiscal year shows an increase and forecasts more growth.",
+        "Revenue for the current fiscal year shows an increase [PDF p. 139].",
+    )
+
+    answers = tuple(AnswerGenerator(MockBackend(output)).generate(request) for output in rejected)
+
+    assert all(answer.status is AnswerStatus.ABSTAINED for answer in answers)
+    assert all(answer.abstention_reason == "model_output_failed_grounding" for answer in answers)
+    assert answers[0].provenance.grounding_diagnostic is not None
+    assert answers[0].provenance.grounding_diagnostic.disallowed_words == ("decrease",)
+    assert answers[1].provenance.grounding_diagnostic is not None
+    assert answers[1].provenance.grounding_diagnostic.disallowed_words == (
+        "forecasts",
+        "growth",
+        "more",
+    )
+    assert answers[2].provenance.grounding_diagnostic is not None
+    assert GroundingRejectionCode.FORBIDDEN_CHARACTER in (
+        answers[2].provenance.grounding_diagnostic.rejection_codes
     )
 
 

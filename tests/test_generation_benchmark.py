@@ -157,7 +157,8 @@ def test_benchmark_separates_acceptance_rejection_and_structured_abstention() ->
         created_at_utc="2026-10-26T00:00:00Z",
     )
 
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
+    assert payload["grounding_policy_version"] == "1.1"
     assert payload["configuration_id"].startswith("sha256-")  # type: ignore[union-attr]
     summary = payload["summary"]
     assert summary == {
@@ -210,6 +211,7 @@ def test_benchmark_payload_and_report_are_reproducible_for_fixed_observations(tm
     assert json.loads((destination / "benchmark.json").read_text(encoding="utf-8")) == payload
     report = (destination / "report.md").read_text(encoding="utf-8")
     assert report == render_benchmark_report(payload)
+    assert "Grounding policy: `1.1`" in report
     assert "not an independent semantic-correctness judgment" in report
     assert "only two positive NVIDIA questions" in report
     with pytest.raises(BenchmarkError, match="already exists"):

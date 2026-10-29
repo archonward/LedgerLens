@@ -141,8 +141,14 @@ check and generation request. Raw model output is not promoted into a financial 
 
 Schema version `1.2` adds deterministic rejection categories and safe details such as
 disallowed words, forbidden characters, and missing required-term groups. These diagnostics are
-additive: the original vocabulary, required groups, prompt, and accept-or-abstain behavior remain
-unchanged. Raw rejected output remains absent from answer provenance and benchmark artifacts.
+additive. Raw rejected output remains absent from answer provenance and benchmark artifacts.
+
+Grounding policy `1.1` narrowly permits the noun/verb direction pairs `increase`/`increased` and
+`decrease`/`decreased`, selected according to the deterministic calculation sign, plus the article
+`an`. This accepts equivalent noncausal wording such as a current-year revenue increase compared
+with the prior year. The opposite direction remains disallowed, as do numbers, currencies,
+percentages, citations, causes, forecasts, unsupported claims, and additional financial
+relationships. All other lexical, sentence-count, and forbidden-character checks are unchanged.
 
 ## Reviewed NVIDIA demonstration
 
