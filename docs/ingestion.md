@@ -4,6 +4,10 @@ LedgerLens provides a CPU-only baseline for extracting text from a user-supplied
 targeted OCR recovery for a selected physical page. It does not download reports, reconstruct
 tables, or validate financial information.
 
+For the independently hash-bound NVIDIA FY2024, FY2025, and existing FY2026 sources, including
+the exact non-overwriting commands and known table limitations, see the
+[three-report corpus guide](three-report-corpus.md).
+
 ## Add a local report
 
 Place the PDF in `data/raw/`. Files in that directory are ignored by Git; keep the explanatory
