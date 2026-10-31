@@ -28,6 +28,7 @@ docs/                  Architecture and evaluation plans
 ```
 
 See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evidence.md),
+[NVIDIA three-report corpus guide](docs/three-report-corpus.md),
 [BM25 retrieval guide](docs/retrieval.md), [semantic retrieval guide](docs/semantic-retrieval.md),
 [chunk-aware semantic retrieval guide](docs/chunk-semantic-retrieval.md),
 [hybrid retrieval guide](docs/hybrid-retrieval.md),
@@ -37,6 +38,7 @@ See the [ingestion guide](docs/ingestion.md), [reviewed evidence guide](docs/evi
 [evidence-grounded answer generation](docs/answer-generation.md),
 [Ollama model-acceptance benchmark](docs/model-acceptance-benchmark.md),
 [deterministic retrieval-to-answer orchestration](docs/orchestration.md),
+[retrieval-to-reviewed-financial-fact association](docs/retrieval-fact-association.md),
 [financial answer CLI](docs/answer-cli.md),
 [architecture](docs/architecture.md), and [evaluation](docs/evaluation.md) documents.
 
@@ -254,6 +256,12 @@ uv run ledgerlens answer "How much did NVIDIA revenue grow in FY2026?" \
 
 The command never downloads a model or infers the company, fiscal period, or financial inputs. See
 [docs/answer-cli.md](docs/answer-cli.md).
+
+Optionally, `--hybrid-embedding-index` runs the existing hybrid retriever first and permits only
+reviewed facts whose complete evidence identities match retrieved selected pages. The association
+audit retains ranks, fusion diagnostics, hashes, fact IDs, and structured abstentions. Required
+facts outside the cutoff are not recovered by falling back to the full fact file. See
+[docs/retrieval-fact-association.md](docs/retrieval-fact-association.md).
 
 Review [docs/ingestion.md](docs/ingestion.md) before treating extraction output as usable. Text
 extraction does not validate financial figures, infer currencies or units, recover scanned text,

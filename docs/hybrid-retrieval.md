@@ -57,6 +57,11 @@ and limitations.
 When BM25 ranks a page, its matched source passage is used as the excerpt. Otherwise, the semantic
 retriever's exact page-start excerpt is used. Neither is generated or paraphrased.
 
+The separate [retrieval-to-reviewed-fact association layer](retrieval-fact-association.md) can use
+these provenance-bound page results to constrain the financial-answer orchestrator. It matches
+complete evidence identities rather than treating rank, page number, or excerpt similarity as fact
+verification.
+
 ## Evaluation
 
 ```powershell
@@ -85,5 +90,5 @@ described as a fresh independent evaluation.
 - Fusion cannot repair extraction errors, flattened tables, ambiguous columns, or incomplete
   relevance judgments.
 - Page-level ranking does not prove that the displayed excerpt alone supports the question.
-- No chunk fusion, learned weighting, query rewriting, reranking, calculation, answer generation,
-  or GPU execution is included.
+- This retriever itself performs no chunk fusion, learned weighting, query rewriting, reranking,
+  calculation, answer generation, or GPU execution.

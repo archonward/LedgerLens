@@ -61,6 +61,19 @@ raw model output.
 Local input failures use a separate `invalid_local_input` CLI error because a malformed or missing
 artifact could not be converted into a validated orchestration request.
 
+### Optional hybrid retrieval constraint
+
+Add `--hybrid-embedding-index <path>` to restrict orchestration to reviewed facts whose exact
+evidence identities occur in the hybrid results. `--retrieval-top-k` defaults to 5 and
+`--retrieval-model-cache` defaults to `artifacts/models`. The index and pinned semantic model must
+already exist locally; LedgerLens uses offline loading and performs no download. Omit the index flag
+to retain the existing explicit-facts behavior.
+
+The retrieval-constrained JSON adds retrieval ranks, fusion details, evidence hashes, per-fact
+association decisions, and retrieval-specific abstention reasons. It never silently falls back to
+all facts when retrieval omits a required input. See
+[retrieval-fact-association.md](retrieval-fact-association.md).
+
 ## Tests and optional live coverage
 
 The offline suite writes controlled evidence and financial-fact fixtures, loads them through the

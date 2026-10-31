@@ -62,13 +62,18 @@ described here remain **planned and unimplemented**.
    and pass the result to the unchanged answer generator. Candidate and selected fact IDs remain
    auditable. Missing, ambiguous, unverified, stale, or incompatible inputs produce structured
    abstention. Fact extraction, unrestricted model selection, company aliases, and autonomous
-   retrieval remain unimplemented.
+   retrieval remain unimplemented. An optional deterministic association boundary now restricts
+   the supplied fact collection to reviewed facts whose full selected-evidence identities occur in
+   hybrid results. It records retrieval and association diagnostics and never treats relevance as
+   verification or falls back to unretrieved facts.
 8. **User interface (implemented narrow CLI):** `ledgerlens answer` loads caller-specified local
    reviewed evidence and facts, requires an exact company and reporting-period end date, and
    delegates directly to the orchestration layer. Terminal and JSON views retain selection audit,
    citations, provenance, limitations, and abstention reasons. Ollama execution requires explicit
    `--ollama` opt-in and retains the fixed model and inference settings. Automatic retrieval,
-   fiscal-period inference, aliases, and a conversational interface remain unimplemented.
+   fiscal-period inference, aliases, and a conversational interface remain unimplemented. An
+   optional existing hybrid index activates retrieval-constrained fact association without changing
+   the original explicit-facts mode.
 9. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.

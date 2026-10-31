@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,13 +23,25 @@ from ledgerlens.orchestration import (
     OrchestrationRequest,
     OrchestrationStatus,
 )
+from ledgerlens.retrieval import (
+    HybridRetriever,
+    RetrievalError,
+    create_fastembed_backend,
+    load_embedding_index,
+)
 from ledgerlens.retrieval.bm25 import load_evidence_export
+from ledgerlens.retrieval_facts import (
+    RetrievalAnswerAbstentionReason,
+    RetrievalFinancialAnswerOrchestrator,
+)
 
 DOCUMENT_ID = "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c"
 SOURCE_SHA256 = DOCUMENT_ID.removeprefix("sha256-")
 SOURCE_PDF = Path("data/raw/nvidia-2026-annual-report.pdf")
 EVIDENCE_DIRECTORY = Path("artifacts/evidence") / DOCUMENT_ID
 FACTS_DIRECTORY = Path("artifacts/financial-facts") / DOCUMENT_ID
+EMBEDDING_INDEX = Path("artifacts/embeddings") / DOCUMENT_ID / "baai-bge-small-en-v1-5-c32e6154d1bb"
+MODEL_CACHE = Path("artifacts/models")
 SCRIPT = Path("scripts/demonstrate_nvidia_fy2026.py")
 
 
@@ -64,6 +77,26 @@ def _run_demo(*extra: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def _real_hybrid_retriever(corpus) -> HybridRetriever:
+    if os.environ.get("LEDGERLENS_RUN_REAL_HYBRID_FACTS") != "1":
+        pytest.skip("set LEDGERLENS_RUN_REAL_HYBRID_FACTS=1 to execute the cached semantic model")
+    required = (
+        EMBEDDING_INDEX / "manifest.json",
+        EMBEDDING_INDEX / "vectors.jsonl",
+    )
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        pytest.skip("ignored NVIDIA embedding artifacts are unavailable: " + ", ".join(missing))
+    try:
+        backend = create_fastembed_backend(MODEL_CACHE, allow_download=False)
+    except RetrievalError as exc:
+        if "dependencies are unavailable" in str(exc):
+            pytest.skip(f"optional semantic dependencies are unavailable: {exc}")
+        raise
+    index = load_embedding_index(EMBEDDING_INDEX, corpus)
+    return HybridRetriever(corpus, index, backend)
 
 
 def test_reviewed_nvidia_facts_reproduce_expected_calculations() -> None:
@@ -246,3 +279,119 @@ def test_reviewed_nvidia_facts_are_selected_by_deterministic_orchestration() -> 
     )
     assert margin.calculation is not None
     assert str(margin.calculation.computed_value) == "55.60253406070260908223656790375015"
+
+
+def test_real_hybrid_retrieval_associates_nvidia_facts_for_growth_and_margin() -> None:
+    _require_local_artifacts()
+    corpus = load_evidence_export(EVIDENCE_DIRECTORY)
+    facts = load_financial_facts(FACTS_DIRECTORY / "facts.jsonl", corpus)
+    by_id = {fact.fact_id: fact for fact in facts}
+    target_end = by_id["nvidia-fy2026-revenue"].reporting_period.end_date
+    assert target_end is not None
+    retriever = _real_hybrid_retriever(corpus)
+
+    def explain(prompt, _config):
+        if "net profit margin" in prompt.casefold():
+            return "Net income represented a portion of revenue for the fiscal year."
+        return "Revenue increased from the prior fiscal year."
+
+    backend = CallableLocalModelBackend(
+        ModelIdentity("mock-local", "controlled-open-model", "retrieval-integration-test"),
+        explain,
+    )
+    integration = RetrievalFinancialAnswerOrchestrator(
+        FinancialAnswerOrchestrator(AnswerGenerator(backend)),
+        retriever,
+    )
+    growth = integration.answer(
+        OrchestrationRequest(
+            "How much did NVIDIA revenue grow in FY2026?",
+            "NVIDIA",
+            target_end,
+            facts,
+            corpus,
+        ),
+        top_k=5,
+    )
+    margin = integration.answer(
+        OrchestrationRequest(
+            "What was NVIDIA's FY2026 net profit margin?",
+            "NVIDIA",
+            target_end,
+            facts,
+            corpus,
+        ),
+        top_k=5,
+    )
+
+    assert growth.status is OrchestrationStatus.ANSWERED
+    assert growth.orchestration is not None
+    assert growth.orchestration.selected_fact_ids == (
+        "nvidia-fy2026-revenue",
+        "nvidia-fy2025-revenue",
+    )
+    assert growth.orchestration.calculation is not None
+    assert str(growth.orchestration.calculation.computed_value) == (
+        "65.47353579009479145114447075411695"
+    )
+    assert margin.status is OrchestrationStatus.ANSWERED
+    assert margin.orchestration is not None
+    assert margin.orchestration.selected_fact_ids == (
+        "nvidia-fy2026-net-income",
+        "nvidia-fy2026-revenue",
+    )
+    assert margin.orchestration.calculation is not None
+    assert str(margin.orchestration.calculation.computed_value) == (
+        "55.60253406070260908223656790375015"
+    )
+    for result in (growth, margin):
+        statement = next(
+            page for page in result.association.retrieved_pages if page.physical_page_number == 139
+        )
+        assert statement.associated_fact_ids == tuple(sorted(by_id))
+        assert result.orchestration is not None
+        assert result.orchestration.answer is not None
+        assert {item.marker for item in result.orchestration.answer.citations} == {"[PDF p. 139]"}
+
+
+def test_real_hybrid_retrieval_cutoff_abstains_without_page_139_fallback() -> None:
+    _require_local_artifacts()
+    corpus = load_evidence_export(EVIDENCE_DIRECTORY)
+    facts = load_financial_facts(FACTS_DIRECTORY / "facts.jsonl", corpus)
+    current = next(fact for fact in facts if fact.fact_id == "nvidia-fy2026-revenue")
+    target_end = current.reporting_period.end_date
+    assert target_end is not None
+    retriever = _real_hybrid_retriever(corpus)
+    calls: list[str] = []
+    backend = CallableLocalModelBackend(
+        ModelIdentity("mock-local", "controlled-open-model", "retrieval-failure-test"),
+        lambda prompt, _config: calls.append(prompt) or "Revenue increased from the prior year.",
+    )
+    integration = RetrievalFinancialAnswerOrchestrator(
+        FinancialAnswerOrchestrator(AnswerGenerator(backend)),
+        retriever,
+    )
+
+    result = integration.answer(
+        OrchestrationRequest(
+            "How much did NVIDIA revenue grow in FY2026?",
+            "NVIDIA",
+            target_end,
+            facts,
+            corpus,
+        ),
+        top_k=4,
+    )
+
+    assert [page.physical_page_number for page in result.association.retrieved_pages] == [
+        166,
+        23,
+        129,
+        124,
+    ]
+    assert result.status is OrchestrationStatus.ABSTAINED
+    assert result.abstention_reason is (
+        RetrievalAnswerAbstentionReason.NO_ASSOCIATED_REVIEWED_FACTS
+    )
+    assert result.orchestration is None
+    assert calls == []

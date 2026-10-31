@@ -25,7 +25,7 @@ orchestrator = FinancialAnswerOrchestrator(answer_generator)
 result = orchestrator.answer(
     OrchestrationRequest(
         question="How much did NVIDIA revenue grow in FY2026?",
-        company="NVIDIA Corporation",
+        company="NVIDIA",
         target_period_end=date(2026, 1, 25),
         facts=reviewed_facts,
         corpus=evidence_corpus,
@@ -96,7 +96,9 @@ The default suite uses controlled mock backends and never contacts Ollama or exe
 - Only two task patterns and exact metric names are supported.
 - Company aliases, period inference, quarter selection, and multi-document fact stores are not
   implemented.
-- The fact collection is supplied explicitly; ranked retrieval does not discover financial facts.
+- The fact collection is supplied explicitly. The optional
+  [retrieval association layer](retrieval-fact-association.md) can restrict it to facts whose exact
+  selected-evidence identities were retrieved, but ranked retrieval never discovers new facts.
 - Duplicate valid facts cause abstention rather than preference or ranking.
 - The narrow [`ledgerlens answer`](answer-cli.md) command is a direct adapter over this API; no
   conversational routing is provided.

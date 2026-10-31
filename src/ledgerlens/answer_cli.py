@@ -7,6 +7,7 @@ import json
 import sys
 from collections.abc import Callable
 from datetime import date
+from pathlib import Path
 
 from ledgerlens.financial_facts import FinancialFactValidationError, load_financial_facts
 from ledgerlens.generation import AnswerGenerator, InferenceConfig, LocalModelBackend
@@ -17,7 +18,18 @@ from ledgerlens.orchestration import (
     OrchestrationResult,
     OrchestrationStatus,
 )
-from ledgerlens.retrieval import RetrievalError, load_evidence_export
+from ledgerlens.retrieval import (
+    HybridRetriever,
+    RetrievalError,
+    create_fastembed_backend,
+    load_embedding_index,
+    load_evidence_export,
+)
+from ledgerlens.retrieval.bm25 import EvidenceCorpus
+from ledgerlens.retrieval_facts import (
+    RetrievalFinancialAnswerOrchestrator,
+    RetrievalFinancialAnswerResult,
+)
 
 ANSWER_ABSTAINED_EXIT_CODE = 3
 _INFERENCE_CONFIG = InferenceConfig(max_new_tokens=96, temperature=0.0)
@@ -55,6 +67,26 @@ def add_answer_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         help="Explicitly allow local qwen3:4b-instruct inference through Ollama.",
     )
     parser.add_argument(
+        "--hybrid-embedding-index",
+        type=Path,
+        help=(
+            "Optional existing page-embedding index; when supplied, only reviewed facts "
+            "associated with hybrid-retrieved evidence are eligible."
+        ),
+    )
+    parser.add_argument(
+        "--retrieval-top-k",
+        type=_positive_integer,
+        default=5,
+        help="Maximum hybrid-retrieved pages eligible for fact association (default: 5).",
+    )
+    parser.add_argument(
+        "--retrieval-model-cache",
+        type=Path,
+        default=Path("artifacts/models"),
+        help="Existing offline semantic model cache (default: artifacts/models).",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit the complete machine-readable orchestration result.",
@@ -72,9 +104,28 @@ def _iso_date(value: str) -> date:
     return parsed
 
 
+def _positive_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a positive integer") from None
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_backend() -> LocalModelBackend:
     """Construct the only supported live backend after explicit CLI opt-in."""
     return OllamaBackend()
+
+
+def _build_hybrid_retriever(args: argparse.Namespace, corpus: EvidenceCorpus) -> HybridRetriever:
+    backend = create_fastembed_backend(
+        args.retrieval_model_cache,
+        allow_download=False,
+    )
+    index = load_embedding_index(args.hybrid_embedding_index, corpus)
+    return HybridRetriever(corpus, index, backend)
 
 
 def run_answer(
@@ -91,19 +142,31 @@ def run_answer(
         return 2
 
     backend = (backend_factory or _build_backend)()
-    result = FinancialAnswerOrchestrator(
-        AnswerGenerator(backend, inference_config=_INFERENCE_CONFIG)
-    ).answer(
-        OrchestrationRequest(
-            question=args.question,
-            company=args.company,
-            target_period_end=args.target_period_end,
-            facts=facts,
-            corpus=corpus,
-        )
+    request = OrchestrationRequest(
+        question=args.question,
+        company=args.company,
+        target_period_end=args.target_period_end,
+        facts=facts,
+        corpus=corpus,
     )
+    orchestrator = FinancialAnswerOrchestrator(
+        AnswerGenerator(backend, inference_config=_INFERENCE_CONFIG)
+    )
+    if args.hybrid_embedding_index is not None:
+        try:
+            retriever = _build_hybrid_retriever(args, corpus)
+        except RetrievalError as exc:
+            _render_input_error(str(exc), as_json=args.json)
+            return 2
+        result = RetrievalFinancialAnswerOrchestrator(orchestrator, retriever).answer(
+            request, top_k=args.retrieval_top_k
+        )
+    else:
+        result = orchestrator.answer(request)
     if args.json:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    elif isinstance(result, RetrievalFinancialAnswerResult):
+        _render_retrieval_human(result)
     else:
         _render_human(result)
     return 0 if result.status is OrchestrationStatus.ANSWERED else ANSWER_ABSTAINED_EXIT_CODE
@@ -181,6 +244,35 @@ def _render_human(result: OrchestrationResult) -> None:
         "Generation provenance: "
         + json.dumps(result.answer.provenance.to_dict(), ensure_ascii=False, sort_keys=True)
     )
+
+
+def _render_retrieval_human(result: RetrievalFinancialAnswerResult) -> None:
+    print("Retrieval-to-fact association:")
+    print(f"- Retrieved pages: {len(result.association.retrieved_pages)}")
+    for page in result.association.retrieved_pages:
+        facts = ", ".join(page.associated_fact_ids) or "none"
+        print(
+            f"- Rank {page.rank}: physical PDF page {page.physical_page_number}; "
+            f"associated facts={facts}; selected_text_sha256={page.selected_text_sha256}"
+        )
+    print("Fact association decisions:")
+    for decision in result.association.fact_decisions:
+        rank = str(decision.retrieval_rank) if decision.retrieval_rank is not None else "none"
+        print(
+            f"- {decision.fact_id}: {decision.outcome.value}; "
+            f"verification={decision.verification_status.value}; retrieval_rank={rank}"
+        )
+        if decision.detail:
+            print(f"  Detail: {decision.detail}")
+    if result.abstention_reason is not None:
+        print(f"Retrieval abstention reason: {result.abstention_reason.value}")
+        if result.detail:
+            print(f"Retrieval detail: {result.detail}")
+    if result.orchestration is not None:
+        _render_human(result.orchestration)
+    else:
+        print(f"Status: {result.status.value}")
+        print(f"Question: {result.question}")
 
 
 def _print_items(label: str, values: tuple[str, ...]) -> None:

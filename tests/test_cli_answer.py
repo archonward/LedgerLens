@@ -27,7 +27,8 @@ from ledgerlens.financial_facts import (
     VerificationStatus,
 )
 from ledgerlens.generation import InferenceConfig, ModelIdentity
-from ledgerlens.retrieval import load_evidence_export
+from ledgerlens.retrieval import FusionComponent, HybridSearchResult, load_evidence_export
+from ledgerlens.retrieval.bm25 import EvidenceCorpus
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -44,6 +45,33 @@ class MockBackend:
         assert config == InferenceConfig(max_new_tokens=96, temperature=0.0)
         self.calls += 1
         return self.response
+
+
+@dataclass
+class FixedHybridRetriever:
+    corpus: EvidenceCorpus
+    physical_pages: tuple[int, ...]
+
+    def search(
+        self, _query: str, *, top_k: int = 5, excerpt_characters: int = 500
+    ) -> tuple[HybridSearchResult, ...]:
+        assert excerpt_characters > 0
+        selected = self.physical_pages[:top_k]
+        return tuple(
+            HybridSearchResult(
+                rank,
+                1.0 / rank,
+                self.corpus.pages[page_number - 1],
+                self.corpus.pages[page_number - 1].text,
+                self.corpus.evidence_jsonl_sha256,
+                self.corpus.manifest_sha256,
+                60,
+                FusionComponent(rank, 1.0, 1.0, 1.0 / (60 + rank)),
+                FusionComponent(rank, 1.0, 1.0, 1.0 / (60 + rank)),
+                "bm25_matched_passage",
+            )
+            for rank, page_number in enumerate(selected, start=1)
+        )
 
 
 def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
@@ -233,6 +261,84 @@ def test_answer_json_supports_net_profit_margin(
         "[PDF p. 1]",
         "[PDF p. 3]",
     }
+
+
+def test_answer_cli_optional_hybrid_path_associates_only_retrieved_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    evidence, facts = _write_inputs(tmp_path)
+    corpus = load_evidence_export(evidence)
+    backend = MockBackend("Revenue increased from the prior fiscal year.")
+    monkeypatch.setattr(answer_cli, "_build_backend", lambda: backend)
+    monkeypatch.setattr(
+        answer_cli,
+        "_build_hybrid_retriever",
+        lambda _args, _corpus: FixedHybridRetriever(corpus, (1, 2)),
+    )
+
+    exit_code = main(
+        _arguments(
+            evidence,
+            facts,
+            "How much did revenue grow?",
+            "--hybrid-embedding-index",
+            "controlled-index",
+            "--retrieval-top-k",
+            "2",
+            "--json",
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert backend.calls == 1
+    assert payload["status"] == "answered"
+    assert payload["retrieval_association"]["associated_fact_ids"] == [
+        "revenue-2025",
+        "revenue-2024",
+    ]
+    assert payload["orchestration"]["selected_fact_ids"] == [
+        "revenue-2025",
+        "revenue-2024",
+    ]
+    assert (
+        payload["retrieval_association"]["retrieved_pages"][0]["selected_text_sha256"]
+        == corpus.pages[0].text_sha256
+    )
+
+
+def test_answer_cli_hybrid_failure_abstains_without_all_fact_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    evidence, facts = _write_inputs(tmp_path)
+    corpus = load_evidence_export(evidence)
+    backend = MockBackend("unused")
+    monkeypatch.setattr(answer_cli, "_build_backend", lambda: backend)
+    monkeypatch.setattr(
+        answer_cli,
+        "_build_hybrid_retriever",
+        lambda _args, _corpus: FixedHybridRetriever(corpus, (3,)),
+    )
+
+    exit_code = main(
+        _arguments(
+            evidence,
+            facts,
+            "How much did revenue grow?",
+            "--hybrid-embedding-index",
+            "controlled-index",
+            "--retrieval-top-k",
+            "1",
+            "--json",
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == answer_cli.ANSWER_ABSTAINED_EXIT_CODE
+    assert backend.calls == 0
+    assert payload["abstention_reason"] == "insufficient_associated_facts"
+    assert payload["retrieval_association"]["associated_fact_ids"] == ["net-income-2025"]
+    assert payload["orchestration"]["abstention_reason"] == "missing_fact"
 
 
 def test_unsupported_question_returns_structured_abstention_without_inference(
