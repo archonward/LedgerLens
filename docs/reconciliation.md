@@ -50,6 +50,10 @@ validated `EvidenceCorpus`. `ReconciliationReport.to_dict()` returns:
 The layer returns structured Python data only. Phase 2A intentionally has no CLI, publisher,
 multi-document retrieval, calculation integration, or answer-orchestration integration.
 
+The later, separate [reconciliation selection adapter](reconciliation-selection.md) can prepare
+explicitly selected source-specific facts for the existing calculation interfaces without
+changing this reconciliation output.
+
 ## Current three-report result
 
 The focused offline integration test consumes the ignored local NVIDIA corpora when present. The
