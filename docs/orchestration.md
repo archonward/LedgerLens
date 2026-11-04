@@ -102,3 +102,8 @@ The default suite uses controlled mock backends and never contacts Ollama or exe
 - Duplicate valid facts cause abstention rather than preference or ranking.
 - The narrow [`ledgerlens answer`](answer-cli.md) command is a direct adapter over this API; no
   conversational routing is provided.
+
+For explicitly reconciled facts from multiple source documents, use the separate
+[multi-document orchestration pathway](multi-document-orchestration.md). It stops after a
+deterministic structured calculation because this orchestrator and the answer generator have a
+single-corpus validation contract.

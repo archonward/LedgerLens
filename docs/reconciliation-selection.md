@@ -58,3 +58,7 @@ The adapter requires callers to identify reconciliation result IDs and source fa
 not map natural-language questions to metrics or periods, choose sources, publish selection
 artifacts, persist user preferences, or perform multi-document orchestration. Those decisions
 require a separate, explicit integration layer.
+
+The [narrow multi-document orchestration pathway](multi-document-orchestration.md) is that
+explicit calculation-only integration. It retains this adapter's decisions and abstentions and
+does not weaken the per-source evidence boundary.
