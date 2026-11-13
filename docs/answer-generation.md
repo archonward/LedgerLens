@@ -197,6 +197,12 @@ The [deterministic orchestration layer](orchestration.md) can construct the two 
 `AnswerRequest` variants from explicitly supplied reviewed facts. It does not change this module's
 revalidation, calculation reproduction, grounding, citation, or abstention boundaries.
 
+The separate [multi-document answer generator](multi-document-answer-generation.md) reuses this
+same backend protocol, model identity, provenance types, and unchanged grounding policy 1.1 after
+fresh source-specific validation. It has distinct request, citation, result, and status types so
+facts from different annual reports are never forced through this module's single-corpus
+`AnswerRequest`.
+
 The user-facing [`ledgerlens answer`](answer-cli.md) command loads reviewed local evidence and
 facts, then delegates to that orchestrator. It fixes the existing Ollama model and inference
 configuration and requires explicit `--ollama` opt-in; it does not change this generator's prompt,

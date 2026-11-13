@@ -29,16 +29,17 @@ Corpora are never merged, substituted, or synthesized.
 `MultiDocumentGenerationValidator.validate` performs these checks before returning `validated`:
 
 1. Require the exact unique role set and unique fact IDs for the task.
-2. Require the reviewed selection decisions to match every role and complete fact snapshot.
+2. Require the question to match the explicitly selected revenue-growth or net-profit-margin task.
+3. Require the reviewed selection decisions to match every role and complete fact snapshot.
    Abstained, conflicting, incompatible, ambiguous, or unsupported-policy selections do not pass.
-3. Match each fact's document ID and source-PDF hash to its declared source binding.
-4. Find that exact corpus and confirm its mapping key, document ID, and source hash. Missing or
+4. Match each fact's document ID and source-PDF hash to its declared source binding.
+5. Find that exact corpus and confirm its mapping key, document ID, and source hash. Missing or
    substituted corpora abstain.
-5. Construct the existing `FactOperand` separately for every binding. This reruns verification and
+6. Construct the existing `FactOperand` separately for every binding. This reruns verification and
    full financial-evidence validation, including page presence, selected-text hash, evidence-export
    hashes, verbatim support, method, warnings, limitations, and recovery-review provenance.
-6. Require the calculation's role/fact snapshots and calculation type to match the bindings.
-7. Independently rerun the existing fixed-context Decimal `year_over_year_growth` or
+7. Require the calculation's role/fact snapshots and calculation type to match the bindings.
+8. Independently rerun the existing fixed-context Decimal `year_over_year_growth` or
    `profit_margin` function with the separately validated operands and compare the complete
    serialized result, including calculation ID, formula, units, precision, and rounding.
 
@@ -71,12 +72,11 @@ boundary without catching ordinary validation failures.
 
 ## Phase 3B connection
 
-Phase 3B can safely accept only a `MultiDocumentGenerationValidationResult` whose status is
-`validated`. It should construct prompts exclusively from that result's bindings, reproduced
-calculation, and source-specific citations; keep deterministic rendering of all numbers and
-citations; and apply grounding policy 1.1 to model text as an untrusted qualitative presentation
-component. It must not accept the unvalidated request directly, redo report selection, collapse
-citations, or allow a model to calculate values.
+Phase 3B is implemented by `MultiDocumentAnswerGenerator`. It accepts the raw request and corpora
+and always invokes this validator internally. It does not trust a caller-constructed validation
+result: when one is supplied, it ignores the claimed validation data and freshly validates the
+underlying request. See
+[multi-document-answer-generation.md](multi-document-answer-generation.md).
 
-Phase 3A intentionally adds no natural-language generation, backend adapter, CLI, retrieval, fact
-extraction, report selection, publication workflow, or combined evidence corpus.
+Phase 3A itself still performs no natural-language generation, backend call, CLI operation,
+retrieval, fact extraction, report selection, publication workflow, or evidence merging.

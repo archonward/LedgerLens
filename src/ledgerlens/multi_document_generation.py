@@ -20,7 +20,12 @@ from ledgerlens.calculations import (
     year_over_year_growth,
 )
 from ledgerlens.financial_facts import FinancialFact
-from ledgerlens.generation import GROUNDING_POLICY_VERSION, AnswerTask
+from ledgerlens.generation import (
+    GROUNDING_POLICY_VERSION,
+    AnswerTask,
+    _question_supports_growth,
+    _question_supports_margin,
+)
 from ledgerlens.reconciliation import ReconciliationStatus
 from ledgerlens.reconciliation_selection import (
     CalculationFactSelection,
@@ -59,6 +64,7 @@ class MultiDocumentGenerationAbstentionReason(StrEnum):
     CALCULATION_INPUT_MISMATCH = "calculation_input_mismatch"
     CALCULATION_COULD_NOT_BE_REPRODUCED = "calculation_could_not_be_reproduced"
     CALCULATION_RESULT_MISMATCH = "calculation_result_mismatch"
+    QUESTION_NOT_SUPPORTED = "question_not_supported"
 
 
 @dataclass(frozen=True)
@@ -382,6 +388,17 @@ class MultiDocumentGenerationValidator:
                 "corpora must map exact document IDs to EvidenceCorpus values",
             )
         expected_roles = _expected_roles(request.task)
+        question_supported = (
+            _question_supports_growth(request.question)
+            if request.task is AnswerTask.REVENUE_GROWTH
+            else _question_supports_margin(request.question)
+        )
+        if not question_supported:
+            return _abstain(
+                request,
+                MultiDocumentGenerationAbstentionReason.QUESTION_NOT_SUPPORTED,
+                "question does not match the explicitly selected financial task",
+            )
         roles = [binding.role for binding in request.bindings]
         if len(roles) != len(set(roles)) or set(roles) != set(expected_roles):
             return _abstain(

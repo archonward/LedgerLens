@@ -226,6 +226,13 @@ and emits report-specific citation records. It invokes no model and leaves the s
 generator and CLI unchanged. See
 [docs/multi-document-generation.md](docs/multi-document-generation.md).
 
+The Phase 3B multi-document answer generator freshly runs that contract before every model call,
+then limits the unchanged local Qwen/Ollama interface to one grounding-policy-1.1 qualitative
+sentence. Deterministic code renders all values, calculations, and separate annual-report
+citations. Fabricated validation results, rejected model output, and backend failures cannot bypass
+the boundary. See
+[docs/multi-document-answer-generation.md](docs/multi-document-answer-generation.md).
+
 An optional standard-library Ollama adapter supports only an already-installed local
 `qwen3:4b-instruct` tag and never downloads or substitutes a model. Its real-model NVIDIA smoke
 test is disabled unless `LEDGERLENS_RUN_OLLAMA_SMOKE=1` is explicitly set. Model identity and

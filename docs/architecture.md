@@ -70,7 +70,10 @@ described here remain **planned and unimplemented**.
    source-specific fact bindings and the preserved reconciliation selection. It revalidates each
    fact against its exact annual-report corpus, independently reproduces the supplied Decimal
    calculation, and emits report-specific citations or a structured abstention. It performs no
-   inference; connecting a local model remains Phase 3B work.
+   inference. A separate Phase 3B generator now reruns that validation internally and asks the
+   unchanged backend interface for one policy-1.1-grounded qualitative sentence. It retains
+   deterministic calculations and report-specific citations across model rejection or backend
+   failure and never trusts a caller-constructed `validated` result without revalidation.
 8. **User interface (implemented narrow CLI):** `ledgerlens answer` loads caller-specified local
    reviewed evidence and facts, requires an exact company and reporting-period end date, and
    delegates directly to the orchestration layer. Terminal and JSON views retain selection audit,

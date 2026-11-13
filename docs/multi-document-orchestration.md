@@ -82,3 +82,10 @@ or invoking a model. See [multi-document-generation.md](multi-document-generatio
 must explicitly carry the successful selection and calculation into source-specific bindings; the
 new validator then revalidates each fact against its exact corpus and independently reproduces the
 calculation before a future Phase 3B integration may proceed.
+
+Phase 3B now connects the validated pathway to the existing backend interface through a separate
+`MultiDocumentAnswerGenerator`. The Phase 2C orchestration result and its historical generation
+boundary fields remain unchanged for backward compatibility. Callers explicitly construct the
+Phase 3A request from the successful selection and calculation, and the Phase 3B generator freshly
+validates that request before any model call. See
+[multi-document-answer-generation.md](multi-document-answer-generation.md).

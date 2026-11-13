@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -23,7 +24,19 @@ from ledgerlens.financial_facts import (
     Verification,
     VerificationStatus,
 )
-from ledgerlens.generation import AnswerTask
+from ledgerlens.generation import (
+    AnswerTask,
+    ExplanationValidationStatus,
+    GroundingRejectionCode,
+    InferenceConfig,
+    ModelIdentity,
+)
+from ledgerlens.generation.ollama import OLLAMA_MODEL, OllamaBackend
+from ledgerlens.multi_document_answer_generation import (
+    MULTI_DOCUMENT_INFERENCE_CONFIG,
+    MultiDocumentAnswerGenerator,
+    MultiDocumentAnswerStatus,
+)
 from ledgerlens.multi_document_generation import (
     MultiDocumentGenerationAbstentionReason,
     MultiDocumentGenerationRequest,
@@ -525,6 +538,27 @@ def _cross_document_growth_result(
     return result, corpora
 
 
+def _cross_document_margin_result(
+    tmp_path: Path,
+) -> tuple[MultiDocumentOrchestrationResult, dict[str, EvidenceCorpus]]:
+    report, corpora = _two_source_fixture(tmp_path)
+    current = _agreement(report, "revenue", CURRENT_PERIOD.end_date)
+    profit = _agreement(report, "net_income", CURRENT_PERIOD.end_date)
+    result = MultiDocumentFinancialAnswerOrchestrator().orchestrate(
+        _request(
+            AnswerTask.NET_PROFIT_MARGIN,
+            (
+                FactSelectionRequest("profit", profit.result_id, "left-net-income"),
+                FactSelectionRequest("revenue", current.result_id, "right-current-revenue"),
+            ),
+        ),
+        report,
+        corpora,
+    )
+    assert result.status is MultiDocumentOrchestrationStatus.CALCULATED
+    return result, corpora
+
+
 def test_multi_document_generation_contract_validates_distinct_corpora(
     tmp_path: Path,
 ) -> None:
@@ -659,7 +693,185 @@ def test_multi_document_generation_rejects_invalid_selections_and_policies(
     assert conflict.abstention_reason is MultiDocumentGenerationAbstentionReason.INVALID_SELECTION
 
 
-def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
+class _ControlledBackend:
+    identity = ModelIdentity("controlled", "offline-mock", "fixture-v1")
+
+    def __init__(self, output: object = "Revenue increased from the prior fiscal year.") -> None:
+        self.output = output
+        self.calls: list[tuple[str, InferenceConfig]] = []
+
+    def generate(self, prompt: str, config: InferenceConfig) -> str:
+        self.calls.append((prompt, config))
+        if isinstance(self.output, Exception):
+            raise self.output
+        return self.output  # type: ignore[return-value]
+
+
+def test_multi_document_answer_generation_accepts_grounded_mock_explanation(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    backend = _ControlledBackend()
+
+    answer = MultiDocumentAnswerGenerator(backend).generate(request, corpora)
+
+    assert answer.status is MultiDocumentAnswerStatus.ANSWERED
+    assert answer.model_generated_explanation == "Revenue increased from the prior fiscal year."
+    assert answer.computed_value is not None
+    assert answer.computed_value.computed_value == "50.0"
+    assert len({citation.annual_report.document_id for citation in answer.citations}) == 2
+    assert answer.provenance.explanation_validation is ExplanationValidationStatus.PASSED
+    assert answer.provenance.model == backend.identity
+    assert backend.calls[0][1] == MULTI_DOCUMENT_INFERENCE_CONFIG
+    assert all(
+        citation.annual_report.document_id in backend.calls[0][0] for citation in answer.citations
+    )
+    assert all(citation.marker in answer.answer_text for citation in answer.citations)
+    assert answer.to_dict()["generation_outcome"] == {
+        "validation_succeeded": True,
+        "model_invocation_attempted": True,
+        "model_invocation_completed": True,
+        "explanation_accepted": True,
+    }
+
+
+def test_multi_document_answer_generation_accepts_cross_report_margin_explanation(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_margin_result(tmp_path)
+    backend = _ControlledBackend("Net income represented a portion of revenue for the fiscal year.")
+
+    answer = MultiDocumentAnswerGenerator(backend).generate(
+        _generation_request(orchestration), corpora
+    )
+
+    assert answer.status is MultiDocumentAnswerStatus.ANSWERED
+    assert answer.computed_value is not None
+    assert answer.computed_value.computed_value == "20.0"
+    assert len({citation.annual_report.document_id for citation in answer.citations}) == 2
+    assert answer.provenance.explanation_validation is ExplanationValidationStatus.PASSED
+
+
+def test_multi_document_answer_generation_abstains_before_invalid_mapping_inference(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    current, prior = request.bindings
+    wrong_current = replace(
+        current,
+        corpus_document_id=prior.corpus_document_id,
+        corpus_source_sha256=prior.corpus_source_sha256,
+    )
+    backend = _ControlledBackend()
+
+    answer = MultiDocumentAnswerGenerator(backend).generate(
+        replace(request, bindings=(wrong_current, prior)), corpora
+    )
+
+    assert answer.status is MultiDocumentAnswerStatus.VALIDATION_ABSTAINED
+    assert answer.abstention_reason == "ambiguous_source_mapping"
+    assert answer.computed_value is None
+    assert answer.citations == ()
+    assert backend.calls == []
+    assert answer.to_dict()["generation_outcome"] == {
+        "validation_succeeded": False,
+        "model_invocation_attempted": False,
+        "model_invocation_completed": False,
+        "explanation_accepted": False,
+    }
+
+
+def test_multi_document_answer_generation_revalidates_fabricated_validated_result(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    genuine = MultiDocumentGenerationValidator().validate(request, corpora)
+    tampered = replace(request.calculation, computed_value=Decimal("999"))
+    tampered_request = replace(request, calculation=tampered)
+    fabricated = replace(
+        genuine,
+        request=tampered_request,
+        reproduced_calculation=tampered,
+    )
+    backend = _ControlledBackend()
+    generator = MultiDocumentAnswerGenerator(backend)
+
+    direct = generator.generate(tampered_request, corpora)
+    answer = generator.generate(fabricated, corpora)
+
+    assert direct.status is MultiDocumentAnswerStatus.VALIDATION_ABSTAINED
+    assert direct.abstention_reason == "calculation_result_mismatch"
+    assert answer.status is MultiDocumentAnswerStatus.VALIDATION_ABSTAINED
+    assert answer.abstention_reason == "calculation_result_mismatch"
+    assert answer.computed_value is None
+    assert backend.calls == []
+
+
+@pytest.mark.parametrize(
+    "model_output",
+    (
+        "Revenue increased because demand grew.",
+        "Revenue will increase from the prior fiscal year.",
+        "Revenue decreased from the prior fiscal year.",
+        "Revenue increased by 50 percent.",
+    ),
+)
+def test_multi_document_answer_generation_rejects_unsupported_model_statement(
+    tmp_path: Path,
+    model_output: str,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    backend = _ControlledBackend(model_output)
+
+    answer = MultiDocumentAnswerGenerator(backend).generate(
+        _generation_request(orchestration), corpora
+    )
+
+    assert answer.status is MultiDocumentAnswerStatus.MODEL_OUTPUT_REJECTED
+    assert answer.model_generated_explanation is None
+    assert answer.computed_value is not None
+    assert answer.computed_value.computed_value == "50.0"
+    assert len(answer.citations) == 2
+    assert model_output not in answer.answer_text
+    assert answer.provenance.explanation_validation is ExplanationValidationStatus.FAILED
+    diagnostic = answer.provenance.grounding_diagnostic
+    assert diagnostic is not None
+    assert GroundingRejectionCode.DISALLOWED_VOCABULARY in diagnostic.rejection_codes
+    if any(character.isdigit() for character in model_output):
+        assert GroundingRejectionCode.FORBIDDEN_CHARACTER in diagnostic.rejection_codes
+    assert answer.to_dict()["generation_outcome"]["explanation_accepted"] is False  # type: ignore[index]
+
+
+def test_multi_document_answer_generation_retains_validated_material_on_backend_failure(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    backend = _ControlledBackend(RuntimeError("controlled backend failure"))
+
+    answer = MultiDocumentAnswerGenerator(backend).generate(
+        _generation_request(orchestration), corpora
+    )
+
+    assert answer.status is MultiDocumentAnswerStatus.INFERENCE_FAILED
+    assert answer.abstention_reason == "model_inference_failed"
+    assert answer.computed_value is not None
+    assert answer.computed_value.computed_value == "50.0"
+    assert len(answer.citations) == 2
+    assert answer.model_generated_explanation is None
+    assert answer.provenance.prompt_sha256 is not None
+    assert answer.provenance.model_output_sha256 is None
+    assert answer.provenance.explanation_validation is ExplanationValidationStatus.NOT_RUN
+    assert answer.to_dict()["generation_outcome"]["model_invocation_completed"] is False  # type: ignore[index]
+
+
+def _real_nvidia_multi_report_requests() -> tuple[
+    MultiDocumentOrchestrationResult,
+    MultiDocumentOrchestrationResult,
+    dict[str, EvidenceCorpus],
+]:
     root = Path(__file__).parents[1]
     document_ids = (
         "sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
@@ -728,6 +940,11 @@ def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
         report,
         corpora,
     )
+    return growth, margin, corpora
+
+
+def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
+    growth, margin, _ = _real_nvidia_multi_report_requests()
 
     assert growth.status is MultiDocumentOrchestrationStatus.CALCULATED
     assert margin.status is MultiDocumentOrchestrationStatus.CALCULATED
@@ -737,3 +954,57 @@ def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
     assert len({fact.evidence.document_id for fact in growth.selected_facts}) == 2
     assert len({fact.evidence.document_id for fact in margin.selected_facts}) == 2
     assert growth.to_dict()["generation"]["model_invoked"] is False  # type: ignore[index]
+
+
+def test_real_ollama_multi_document_generation_when_explicitly_enabled() -> None:
+    if os.environ.get("LEDGERLENS_RUN_MULTI_DOCUMENT_OLLAMA") != "1":
+        pytest.skip("set LEDGERLENS_RUN_MULTI_DOCUMENT_OLLAMA=1 to execute multi-document Ollama")
+    growth, margin, corpora = _real_nvidia_multi_report_requests()
+    backend = OllamaBackend(timeout_seconds=300)
+    generator = MultiDocumentAnswerGenerator(backend)
+    results = [generator.generate(_generation_request(item), corpora) for item in (growth, margin)]
+
+    assert results[0].computed_value is not None
+    assert results[0].computed_value.computed_value == "114.2034076359935655428252519615246"
+    assert results[1].computed_value is not None
+    assert results[1].computed_value.computed_value == "48.84934834706674107875644266439053"
+    for answer in results:
+        assert answer.status in {
+            MultiDocumentAnswerStatus.ANSWERED,
+            MultiDocumentAnswerStatus.MODEL_OUTPUT_REJECTED,
+        }
+        assert len({item.annual_report.document_id for item in answer.citations}) == 2
+        assert answer.provenance.model.model == OLLAMA_MODEL
+        assert answer.provenance.model.revision is not None
+        assert answer.provenance.response_latency_ms is not None
+        assert answer.provenance.explanation_validation in {
+            ExplanationValidationStatus.PASSED,
+            ExplanationValidationStatus.FAILED,
+        }
+        if answer.status is MultiDocumentAnswerStatus.ANSWERED:
+            assert answer.model_generated_explanation is not None
+        else:
+            assert answer.model_generated_explanation is None
+
+    print(
+        json.dumps(
+            [
+                {
+                    "task": answer.request.task.value,
+                    "status": answer.status.value,
+                    "model_invoked": answer.provenance.prompt_sha256 is not None,
+                    "explanation_validation": answer.provenance.explanation_validation.value,
+                    "model": answer.provenance.model.to_dict(),
+                    "response_latency_ms": answer.provenance.response_latency_ms,
+                    "calculation_id": (
+                        answer.computed_value.calculation_id if answer.computed_value else None
+                    ),
+                    "citation_document_ids": [
+                        item.annual_report.document_id for item in answer.citations
+                    ],
+                }
+                for answer in results
+            ],
+            indent=2,
+        )
+    )
