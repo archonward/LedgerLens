@@ -116,3 +116,8 @@ model grounding remain deliberately narrow and lexical, so safe paraphrases can 
 model cannot add quantitative details, causes, forecasts, management commentary, or extra evidence.
 Presentation rounding remains undefined, and the API retains the calculation layer's full Decimal
 result. Phase 3B does not add a user-facing workflow or make the model a trusted financial reasoner.
+
+Phase 3C adds a separate request-file CLI, deterministic presentation layer, and reference-case
+evaluation adapter without changing this generator. See
+[multi-document-cli.md](multi-document-cli.md) and
+[multi-document-evaluation.md](multi-document-evaluation.md).

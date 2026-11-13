@@ -233,6 +233,12 @@ citations. Fabricated validation results, rejected model output, and backend fai
 the boundary. See
 [docs/multi-document-answer-generation.md](docs/multi-document-answer-generation.md).
 
+Phase 3C exposes the trusted workflow through the explicit request-file `answer-multi` command and
+adds `evaluate-answer-multi` for protected, fingerprinted reference-case evaluation. Human output
+uses two-decimal Decimal half-even percentage presentation while JSON retains full precision. See
+[docs/multi-document-cli.md](docs/multi-document-cli.md) and
+[docs/multi-document-evaluation.md](docs/multi-document-evaluation.md).
+
 An optional standard-library Ollama adapter supports only an already-installed local
 `qwen3:4b-instruct` tag and never downloads or substitutes a model. Its real-model NVIDIA smoke
 test is disabled unless `LEDGERLENS_RUN_OLLAMA_SMOKE=1` is explicitly set. Model identity and

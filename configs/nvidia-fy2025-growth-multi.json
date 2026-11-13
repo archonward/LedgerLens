@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "question": "How much did NVIDIA revenue grow in FY2025?",
+  "task": "revenue_growth",
+  "company": "NVIDIA",
+  "sources": [
+    {
+      "document_id": "sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "source_sha256": "b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "evidence_directory": "../artifacts/evidence/sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84/milestone-8b-verified-facts.jsonl"
+      ]
+    },
+    {
+      "document_id": "sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "source_sha256": "757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "evidence_directory": "../artifacts/evidence/sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc/milestone-8b-verified-facts.jsonl"
+      ]
+    },
+    {
+      "document_id": "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "source_sha256": "0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "evidence_directory": "../artifacts/evidence/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c/milestone-8b-verified-facts.jsonl",
+        "../artifacts/financial-facts/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c/facts.jsonl"
+      ]
+    }
+  ],
+  "selections": [
+    {
+      "role": "current",
+      "reconciliation_result_id": "sha256-45350675c098e440847168bf23c772e1243987893be7bc12164f4ea56b579fb1",
+      "selected_fact_id": "nvidia-fy2025-report-fy2025-revenue"
+    },
+    {
+      "role": "prior",
+      "reconciliation_result_id": "sha256-9d725e27de75c426f41456b080e10799e63c21838232ed4f5f59a50ac157d8e7",
+      "selected_fact_id": "nvidia-fy2024-report-fy2024-revenue"
+    }
+  ],
+  "selection_policy": {
+    "single_source": "abstain"
+  }
+}

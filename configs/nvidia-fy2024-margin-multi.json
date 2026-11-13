@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "question": "What was NVIDIA's FY2024 net profit margin?",
+  "task": "net_profit_margin",
+  "company": "NVIDIA",
+  "sources": [
+    {
+      "document_id": "sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "source_sha256": "b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "evidence_directory": "../artifacts/evidence/sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-b5751f4bb240eeb63d119211d6cc495e1d623897f1f2af1887e387bad1404c84/milestone-8b-verified-facts.jsonl"
+      ]
+    },
+    {
+      "document_id": "sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "source_sha256": "757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "evidence_directory": "../artifacts/evidence/sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-757b344ab62ba282f6e44e0702e8ce5f190d88fb23b5e0a2beaf4cb277a395cc/milestone-8b-verified-facts.jsonl"
+      ]
+    },
+    {
+      "document_id": "sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "source_sha256": "0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "evidence_directory": "../artifacts/evidence/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c",
+      "financial_facts": [
+        "../artifacts/financial-facts/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c/milestone-8b-verified-facts.jsonl",
+        "../artifacts/financial-facts/sha256-0e725ba048221539dca3eb1a4e70febfcbb785e9afb96cd3ff0b035d7d734e5c/facts.jsonl"
+      ]
+    }
+  ],
+  "selections": [
+    {
+      "role": "profit",
+      "reconciliation_result_id": "sha256-d0dee2c809cc088c8a63fc117b5c799c2b2a0f5914bc6a17518b2a916b614cbb",
+      "selected_fact_id": "nvidia-fy2024-report-fy2024-net-income"
+    },
+    {
+      "role": "revenue",
+      "reconciliation_result_id": "sha256-9d725e27de75c426f41456b080e10799e63c21838232ed4f5f59a50ac157d8e7",
+      "selected_fact_id": "nvidia-fy2026-report-fy2024-revenue"
+    }
+  ],
+  "selection_policy": {
+    "single_source": "abstain"
+  }
+}

@@ -1,5 +1,9 @@
 # Retrieval evaluation
 
+For explicit multi-document calculation, citation, model-invocation, and grounding evaluation, see
+[multi-document-evaluation.md](multi-document-evaluation.md). It requires caller-supplied reference
+answers with provenance and remains separate from the retrieval metrics below.
+
 LedgerLens implements an offline framework for evaluating page-level BM25, page-semantic,
 chunk-aware semantic, or hybrid RRF retrieval
 against independently supplied relevance judgments. No NVIDIA benchmark result is included in the

@@ -39,6 +39,8 @@ def test_help_works_for_both_entry_points(entry_point: list[str]) -> None:
     assert "chunk-semantic-retrieve" in result.stdout
     assert "evaluate-retrieval" in result.stdout
     assert "answer" in result.stdout
+    assert "answer-multi" in result.stdout
+    assert "evaluate-answer-multi" in result.stdout
     assert "--version" in result.stdout
 
 

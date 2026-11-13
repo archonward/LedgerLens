@@ -82,11 +82,17 @@ described here remain **planned and unimplemented**.
    fiscal-period inference, aliases, and a conversational interface remain unimplemented. An
    optional existing hybrid index activates retrieval-constrained fact association without changing
    the original explicit-facts mode.
+   The separate `answer-multi` command consumes exact corpus identities, fact files,
+   reconciliation IDs, source-specific fact IDs, and roles. It delegates to the existing trusted
+   pipeline and applies presentation-only percentage rounding. `evaluate-answer-multi` publishes
+   fingerprinted reference-case outputs under `artifacts/evaluation/` with overwrite protection.
+   These boundaries prepare later Slurm submission, but Phase 3C adds no cluster deployment.
 9. **Evaluation (retrieval framework implemented):** evaluate BM25, page-semantic, chunk-aware
    semantic, or hybrid ranked physical pages using separate, manually verified relevance judgments
    and development/held-out splits.
-   Hit@K, Recall@K, and MRR are implemented; numerical, citation, abstention, generation, and
-   latency evaluation remain planned.
+   Hit@K, Recall@K, and MRR are implemented. A separate small multi-document runner now records
+   exact numerical and citation reference checks, abstention, generation acceptance, backend
+   failure, and latency without treating lexical acceptance as semantic correctness.
 
 ## Information types
 

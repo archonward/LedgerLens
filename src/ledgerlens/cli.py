@@ -24,6 +24,7 @@ from ledgerlens.evaluation import (
 )
 from ledgerlens.evidence import prepare_evidence
 from ledgerlens.ingestion import IngestionError, ingest_pdf, recover_page
+from ledgerlens.multi_document_cli import add_answer_multi_parser, add_evaluate_answer_multi_parser
 from ledgerlens.retrieval import (
     BM25Retriever,
     ChunkingConfig,
@@ -488,6 +489,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     evaluation_parser.set_defaults(handler=_run_evaluate_retrieval)
     add_answer_parser(subparsers)
+    add_answer_multi_parser(subparsers)
+    add_evaluate_answer_multi_parser(subparsers)
     return parser
 
 
