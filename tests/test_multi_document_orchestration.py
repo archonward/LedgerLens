@@ -24,11 +24,19 @@ from ledgerlens.financial_facts import (
     VerificationStatus,
 )
 from ledgerlens.generation import AnswerTask
+from ledgerlens.multi_document_generation import (
+    MultiDocumentGenerationAbstentionReason,
+    MultiDocumentGenerationRequest,
+    MultiDocumentGenerationValidationStatus,
+    MultiDocumentGenerationValidator,
+    SourceFactBinding,
+)
 from ledgerlens.multi_document_orchestration import (
     GenerationBoundaryReason,
     MultiDocumentAbstentionReason,
     MultiDocumentFinancialAnswerOrchestrator,
     MultiDocumentOrchestrationRequest,
+    MultiDocumentOrchestrationResult,
     MultiDocumentOrchestrationStatus,
 )
 from ledgerlens.reconciliation import (
@@ -231,6 +239,31 @@ def _two_source_fixture(
     left = _corpus("1", ("$150", "$100", "$30"))
     right = _corpus("2", ("$150", "$100", "$30"))
     return _report(tmp_path, ((left, _facts(left, "left")), (right, _facts(right, "right"))))
+
+
+def _generation_request(
+    result: MultiDocumentOrchestrationResult,
+) -> MultiDocumentGenerationRequest:
+    assert result.selection is not None
+    assert result.calculation is not None
+    bindings = tuple(
+        SourceFactBinding(
+            decision.request.role,
+            decision.operand.fact,
+            decision.operand.corpus.document_id,
+            decision.operand.corpus.source_sha256,
+        )
+        for decision in result.selection.decisions
+        if decision.operand is not None
+    )
+    return MultiDocumentGenerationRequest(
+        result.request.question,
+        result.request.task,
+        result.request.company,
+        bindings,
+        result.calculation,
+        result.selection,
+    )
 
 
 def test_cross_document_growth_and_margin_stop_at_structured_calculation(
@@ -471,6 +504,161 @@ def test_ambiguous_result_company_and_metric_mismatches_abstain(tmp_path: Path) 
     assert wrong_metric.abstention_reason is MultiDocumentAbstentionReason.METRIC_MISMATCH
 
 
+def _cross_document_growth_result(
+    tmp_path: Path,
+) -> tuple[MultiDocumentOrchestrationResult, dict[str, EvidenceCorpus]]:
+    report, corpora = _two_source_fixture(tmp_path)
+    current = _agreement(report, "revenue", CURRENT_PERIOD.end_date)
+    prior = _agreement(report, "revenue", PRIOR_PERIOD.end_date)
+    result = MultiDocumentFinancialAnswerOrchestrator().orchestrate(
+        _request(
+            AnswerTask.REVENUE_GROWTH,
+            (
+                FactSelectionRequest("current", current.result_id, "left-current-revenue"),
+                FactSelectionRequest("prior", prior.result_id, "right-prior-revenue"),
+            ),
+        ),
+        report,
+        corpora,
+    )
+    assert result.status is MultiDocumentOrchestrationStatus.CALCULATED
+    return result, corpora
+
+
+def test_multi_document_generation_contract_validates_distinct_corpora(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    margin_directory = tmp_path / "margin"
+    margin_directory.mkdir()
+    margin_report, margin_corpora = _two_source_fixture(margin_directory)
+    current = _agreement(margin_report, "revenue", CURRENT_PERIOD.end_date)
+    profit = _agreement(margin_report, "net_income", CURRENT_PERIOD.end_date)
+    margin_orchestration = MultiDocumentFinancialAnswerOrchestrator().orchestrate(
+        _request(
+            AnswerTask.NET_PROFIT_MARGIN,
+            (
+                FactSelectionRequest("profit", profit.result_id, "left-net-income"),
+                FactSelectionRequest("revenue", current.result_id, "right-current-revenue"),
+            ),
+        ),
+        margin_report,
+        margin_corpora,
+    )
+
+    result = MultiDocumentGenerationValidator().validate(request, corpora)
+    margin = MultiDocumentGenerationValidator().validate(
+        _generation_request(margin_orchestration), margin_corpora
+    )
+
+    assert result.status is MultiDocumentGenerationValidationStatus.VALIDATED
+    assert result.reproduced_calculation is not None
+    assert result.reproduced_calculation.computed_value == Decimal("50.0")
+    assert len(result.citations) == 2
+    assert len({citation.annual_report.document_id for citation in result.citations}) == 2
+    assert {citation.physical_page_number for citation in result.citations} == {1, 2}
+    assert all(
+        citation.fact_verification_provenance["status"] == "verified"
+        for citation in result.citations
+    )
+    assert margin.status is MultiDocumentGenerationValidationStatus.VALIDATED
+    assert margin.reproduced_calculation is not None
+    assert margin.reproduced_calculation.computed_value == Decimal("20.0")
+    assert len({citation.annual_report.document_id for citation in margin.citations}) == 2
+    payload = result.to_dict()
+    assert payload["generation"]["model_invoked"] is False  # type: ignore[index]
+    assert payload["generation"]["grounding_policy_version"] == "1.1"  # type: ignore[index]
+
+
+def test_multi_document_generation_rejects_missing_and_incorrect_source_mappings(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    current, prior = request.bindings
+    without_prior = dict(corpora)
+    without_prior.pop(prior.corpus_document_id)
+    wrong_binding = replace(
+        current,
+        corpus_document_id=prior.corpus_document_id,
+        corpus_source_sha256=prior.corpus_source_sha256,
+    )
+
+    missing = MultiDocumentGenerationValidator().validate(request, without_prior)
+    mismatched = MultiDocumentGenerationValidator().validate(
+        replace(request, bindings=(wrong_binding, prior)), corpora
+    )
+
+    assert missing.abstention_reason is (
+        MultiDocumentGenerationAbstentionReason.MISSING_EVIDENCE_CORPUS
+    )
+    assert mismatched.abstention_reason is (
+        MultiDocumentGenerationAbstentionReason.AMBIGUOUS_SOURCE_MAPPING
+    )
+    assert missing.citations == () and mismatched.citations == ()
+
+
+def test_multi_document_generation_rejects_modified_evidence_and_calculation(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    modified = dict(corpora)
+    document_id = request.bindings[1].corpus_document_id
+    modified[document_id] = replace(modified[document_id], manifest_sha256="0" * 64)
+    assert orchestration.calculation is not None
+    tampered_calculation = replace(orchestration.calculation, computed_value=Decimal("51"))
+
+    stale = MultiDocumentGenerationValidator().validate(request, modified)
+    mismatch = MultiDocumentGenerationValidator().validate(
+        replace(request, calculation=tampered_calculation), corpora
+    )
+
+    assert stale.abstention_reason is (
+        MultiDocumentGenerationAbstentionReason.INVALID_OR_STALE_EVIDENCE
+    )
+    assert mismatch.abstention_reason is (
+        MultiDocumentGenerationAbstentionReason.CALCULATION_RESULT_MISMATCH
+    )
+
+
+def test_multi_document_generation_rejects_invalid_selections_and_policies(
+    tmp_path: Path,
+) -> None:
+    orchestration, corpora = _cross_document_growth_result(tmp_path)
+    request = _generation_request(orchestration)
+    assert orchestration.selection is not None
+
+    class UnsupportedPolicy(ReconciliationSelectionPolicy):
+        pass
+
+    unsupported_selection = replace(
+        orchestration.selection,
+        policy=UnsupportedPolicy(),
+    )
+    invalid_decision = replace(
+        orchestration.selection.decisions[0],
+        reconciliation_status=ReconciliationStatus.CONFLICT,
+    )
+    invalid_selection = replace(
+        orchestration.selection,
+        decisions=(invalid_decision, orchestration.selection.decisions[1]),
+    )
+
+    unsupported = MultiDocumentGenerationValidator().validate(
+        replace(request, selection=unsupported_selection), corpora
+    )
+    conflict = MultiDocumentGenerationValidator().validate(
+        replace(request, selection=invalid_selection), corpora
+    )
+
+    assert unsupported.abstention_reason is (
+        MultiDocumentGenerationAbstentionReason.UNSUPPORTED_SELECTION_POLICY
+    )
+    assert conflict.abstention_reason is MultiDocumentGenerationAbstentionReason.INVALID_SELECTION
+
+
 def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
     root = Path(__file__).parents[1]
     document_ids = (
@@ -544,6 +732,8 @@ def test_real_nvidia_multi_report_orchestration_when_artifacts_exist() -> None:
     assert growth.status is MultiDocumentOrchestrationStatus.CALCULATED
     assert margin.status is MultiDocumentOrchestrationStatus.CALCULATED
     assert growth.calculation is not None and margin.calculation is not None
+    assert growth.calculation.computed_value == Decimal("114.2034076359935655428252519615246")
+    assert margin.calculation.computed_value == Decimal("48.84934834706674107875644266439053")
     assert len({fact.evidence.document_id for fact in growth.selected_facts}) == 2
     assert len({fact.evidence.document_id for fact in margin.selected_facts}) == 2
     assert growth.to_dict()["generation"]["model_invoked"] is False  # type: ignore[index]

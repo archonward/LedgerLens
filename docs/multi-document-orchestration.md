@@ -76,3 +76,9 @@ Phase 2C does not publish artifacts, infer fiscal periods, select sources, perfo
 interpret arbitrary questions, or generate prose. A safe later generation integration requires a
 new request contract that binds every fact to its own validated corpus and reproduces calculations
 with those per-fact operands before applying the unchanged grounding policy.
+
+Phase 3A now provides that separate validation-only contract without changing this Phase 2C result
+or invoking a model. See [multi-document-generation.md](multi-document-generation.md). The caller
+must explicitly carry the successful selection and calculation into source-specific bindings; the
+new validator then revalidates each fact against its exact corpus and independently reproduces the
+calculation before a future Phase 3B integration may proceed.

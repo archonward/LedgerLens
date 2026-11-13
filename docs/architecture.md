@@ -66,6 +66,11 @@ described here remain **planned and unimplemented**.
    the supplied fact collection to reviewed facts whose full selected-evidence identities occur in
    hybrid results. It records retrieval and association diagnostics and never treats relevance as
    verification or falls back to unretrieved facts.
+   A separate multi-document generation-validation boundary now accepts only explicit
+   source-specific fact bindings and the preserved reconciliation selection. It revalidates each
+   fact against its exact annual-report corpus, independently reproduces the supplied Decimal
+   calculation, and emits report-specific citations or a structured abstention. It performs no
+   inference; connecting a local model remains Phase 3B work.
 8. **User interface (implemented narrow CLI):** `ledgerlens answer` loads caller-specified local
    reviewed evidence and facts, requires an exact company and reporting-period end date, and
    delegates directly to the orchestration layer. Terminal and JSON views retain selection audit,

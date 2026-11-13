@@ -219,6 +219,13 @@ configurable local open-model backend to a checked qualitative sentence. Offline
 backend; LedgerLens does not download or require a model or GPU. See
 [docs/answer-generation.md](docs/answer-generation.md).
 
+The separate multi-document generation contract is validation-only. It binds every selected fact
+to an exact annual-report document ID and source hash, revalidates each fact against its own corpus,
+preserves the reconciliation selection audit, independently reproduces the Decimal calculation,
+and emits report-specific citation records. It invokes no model and leaves the single-document
+generator and CLI unchanged. See
+[docs/multi-document-generation.md](docs/multi-document-generation.md).
+
 An optional standard-library Ollama adapter supports only an already-installed local
 `qwen3:4b-instruct` tag and never downloads or substitutes a model. Its real-model NVIDIA smoke
 test is disabled unless `LEDGERLENS_RUN_OLLAMA_SMOKE=1` is explicitly set. Model identity and
